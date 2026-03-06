@@ -1,0 +1,317 @@
+package view
+
+import (
+	"fmt"
+	"strings"
+
+	"im-tui/collector"
+
+	"github.com/charmbracelet/lipgloss"
+)
+
+// RenderApplication renders the Application tab (Tab 2) showing detailed
+// Prometheus application metrics in a btop-inspired layout:
+//   - Top panel: sparkline graphs for online users, msgs in 5 min, send rate
+//   - Middle-left: message processing success/fail counters
+//   - Middle-right: msg-transfer storage pipeline + push/login/API
+//   - Bottom panel: per-pod table (goroutines, memory alloc)
+func RenderApplication(
+	width, height int,
+	prom *collector.PrometheusSnapshot,
+	cw *collector.CloudWatchSnapshot,
+	tsOnline, tsMsgs, tsSendRate *collector.TimeSeries,
+	tsRedisOK, tsMongoOK, tsLogin *collector.TimeSeries,
+	tsGatewaySend *collector.TimeSeries,
+	tsKafkaLag, tsMsgLagGrowth *collector.TimeSeries,
+	scrollPos int,
+) string {
+	if prom == nil || prom.Err != nil {
+		msg := "Waiting for data..."
+		if prom != nil && prom.Err != nil {
+			msg = fmt.Sprintf("Error: %v", prom.Err)
+		}
+		placeholder := lipgloss.NewStyle().
+			Foreground(ColorSubtext).
+			Width(width).
+			Align(lipgloss.Center).
+			Render(msg)
+		return placeholder
+	}
+
+	// Layout proportions: top ~25%, mid-top ~20%, mid-bot ~20%, bottom ~35%
+	topHeight := height * 25 / 100
+	if topHeight < 7 {
+		topHeight = 7
+	}
+	midTopHeight := height * 20 / 100
+	if midTopHeight < 6 {
+		midTopHeight = 6
+	}
+	midBotHeight := height * 20 / 100
+	if midBotHeight < 6 {
+		midBotHeight = 6
+	}
+	botHeight := height - topHeight - midTopHeight - midBotHeight
+	if botHeight < 5 {
+		botHeight = 5
+	}
+
+	topPanel := renderSparklinePanel(width, topHeight, prom, tsOnline, tsMsgs, tsSendRate, tsGatewaySend)
+	midTopPanel := renderMessageCounters(width, midTopHeight, prom)
+	midBotPanel := renderStoragePipeline(width, midBotHeight, prom, cw, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth)
+	botPanel := renderPodMetricsTable(width, botHeight, prom.PodMetrics, scrollPos)
+
+	return lipgloss.JoinVertical(lipgloss.Left, topPanel, midTopPanel, midBotPanel, botPanel)
+}
+
+// renderSparklinePanel draws sparkline rows inside a single panel.
+func renderSparklinePanel(width, height int, prom *collector.PrometheusSnapshot, tsOnline, tsMsgs, tsSendRate, tsGatewaySend *collector.TimeSeries) string {
+	innerW := width - 4 // panel border + small padding
+
+	// Each sparkline row: label (fixed width) + sparkline + current value
+	labelW := 18
+	valueW := 12
+	sparkW := innerW - labelW - valueW - 2
+	if sparkW < 10 {
+		sparkW = 10
+	}
+
+	rows := []struct {
+		label string
+		ts    *collector.TimeSeries
+		cur   float64
+		fmt   string
+	}{
+		{"Online Users", tsOnline, prom.OnlineUsers, FormatNum(prom.OnlineUsers)},
+		{"Msgs / 5 min", tsMsgs, prom.MsgsIn5Min, FormatNum(prom.MsgsIn5Min)},
+		{"Send Rate", tsSendRate, prom.SendRate, FormatRate(prom.SendRate)},
+		{"GW Send Rate", tsGatewaySend, prom.GatewaySendRate, FormatRate(prom.GatewaySendRate)},
+	}
+
+	var lines []string
+	for _, r := range rows {
+		label := LabelStyle.Render(PadRight(r.label, labelW))
+		var spark string
+		if r.ts != nil {
+			spark = SparklineStr(r.ts.Values(), sparkW)
+		} else {
+			spark = SparklineStr(nil, sparkW)
+		}
+		value := ValueStyle.Render(fmt.Sprintf("%*s", valueW, r.fmt))
+		lines = append(lines, label+spark+" "+value)
+	}
+
+	content := strings.Join(lines, "\n")
+	return Panel("Metrics", content, width, height)
+}
+
+// renderMessageCounters draws the message success/fail counters as a two-column layout.
+func renderMessageCounters(width, height int, prom *collector.PrometheusSnapshot) string {
+	innerW := width - 4
+
+	okStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorGreen)
+	failStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorRed)
+
+	colW := innerW / 2
+	if colW < 20 {
+		colW = 20
+	}
+
+	// Single chat column
+	singleHeader := ValueStyle.Render("Single Chat")
+	singleOK := LabelStyle.Render("  OK:   ") + okStyle.Render(FormatNum(prom.SingleChatOK))
+	singleFail := LabelStyle.Render("  Fail: ") + failStyle.Render(FormatNum(prom.SingleChatFail))
+
+	// Group chat column
+	groupHeader := ValueStyle.Render("Group Chat")
+	groupOK := LabelStyle.Render("  OK:   ") + okStyle.Render(FormatNum(prom.GroupChatOK))
+	groupFail := LabelStyle.Render("  Fail: ") + failStyle.Render(FormatNum(prom.GroupChatFail))
+
+	// Build each column as a block
+	leftLines := []string{singleHeader, singleOK, singleFail}
+	rightLines := []string{groupHeader, groupOK, groupFail}
+
+	var lines []string
+	for i := 0; i < len(leftLines); i++ {
+		left := PadRight(leftLines[i], colW)
+		right := ""
+		if i < len(rightLines) {
+			right = rightLines[i]
+		}
+		lines = append(lines, left+right)
+	}
+
+	content := strings.Join(lines, "\n")
+	return Panel("Message Processing", content, width, height)
+}
+
+// renderStoragePipeline draws the msg-transfer storage pipeline, Kafka lag, push/login/API metrics.
+func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot, cw *collector.CloudWatchSnapshot, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth *collector.TimeSeries) string {
+	innerW := width - 4
+
+	okStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorGreen)
+
+	halfW := innerW / 2
+	if halfW < 20 {
+		halfW = 20
+	}
+
+	// Lag growth rate from Prometheus (production - consumption)
+	lagGrowth := prom.MsgLagGrowthRate
+	var lagStyled string
+	switch {
+	case lagGrowth > 1:
+		lagStyled = lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(fmt.Sprintf("+%.2f/s", lagGrowth))
+	case lagGrowth > 0:
+		lagStyled = lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(fmt.Sprintf("+%.2f/s", lagGrowth))
+	case lagGrowth < 0:
+		lagStyled = okStyle.Render(fmt.Sprintf("%.2f/s", lagGrowth))
+	default:
+		lagStyled = okStyle.Render("0.00/s")
+	}
+
+	// Left column: msg-transfer pipeline + lag indicator (compact layout)
+	leftLines := []string{
+		LabelStyle.Render("Redis Insert  ") +
+			LabelStyle.Render("OK ") + okStyle.Render(FormatRate(prom.RedisInsertOK)) +
+			LabelStyle.Render("  Fail ") + failRateValue(prom.RedisInsertFail),
+		LabelStyle.Render("Mongo Insert  ") +
+			LabelStyle.Render("OK ") + okStyle.Render(FormatRate(prom.MongoInsertOK)) +
+			LabelStyle.Render("  Fail ") + failRateValue(prom.MongoInsertFail),
+		LabelStyle.Render("Seq Set Fail  ") + failRateValue(prom.SeqSetFail) +
+			LabelStyle.Render("  Lag ") + lagStyled,
+	}
+
+	// Kafka consumer lag per group (from CloudWatch MSK, when available)
+	if cw != nil && cw.Err == nil && len(cw.MSK.ConsumerLag) > 0 {
+		var lagParts []string
+		for _, cl := range cw.MSK.ConsumerLag {
+			lagParts = append(lagParts, LabelStyle.Render(cl.Group+" ")+lagValue(cl.Lag))
+		}
+		leftLines = append(leftLines, LabelStyle.Render("Kafka Lag  ")+strings.Join(lagParts, LabelStyle.Render("  ")))
+	}
+
+	// Right column: push + activity + per-service 5XX
+	rightLines := []string{
+		LabelStyle.Render("Push Fail     ") + failRateValue(prom.PushFail) +
+			LabelStyle.Render("  Slow ") + failRateValue(prom.LongTimePush),
+		LabelStyle.Render("Login ") + okStyle.Render(FormatRate(prom.UserLogin)) +
+			LabelStyle.Render("  Register ") + okStyle.Render(FormatRate(prom.UserRegister)),
+		LabelStyle.Render("5XX  chat-api ") + failRateValue(prom.ChatAPI5XX) +
+			LabelStyle.Render("  openim-api ") + failRateValue(prom.OpenIMAPI5XX),
+	}
+
+	var lines []string
+	maxRows := len(leftLines)
+	if len(rightLines) > maxRows {
+		maxRows = len(rightLines)
+	}
+	for i := 0; i < maxRows; i++ {
+		left := ""
+		if i < len(leftLines) {
+			left = leftLines[i]
+		}
+		right := ""
+		if i < len(rightLines) {
+			right = rightLines[i]
+		}
+		lines = append(lines, PadRight(left, halfW)+right)
+	}
+
+	content := strings.Join(lines, "\n")
+	return Panel("Storage Pipeline / Kafka / Activity", content, width, height)
+}
+
+// lagValue renders a consumer group lag value with color coding.
+func lagValue(lag float64) string {
+	s := FormatNum(lag)
+	switch {
+	case lag >= 10000:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	case lag >= 1000:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	case lag > 0:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorCyan).Render(s)
+	default:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+	}
+}
+
+// failRateValue renders a rate value in red if > 0, green otherwise.
+func failRateValue(rate float64) string {
+	s := FormatRate(rate)
+	if rate > 0 {
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+}
+
+// renderPodMetricsTable draws a scrollable per-pod table showing goroutines and memory.
+func renderPodMetricsTable(width, height int, pods []collector.PodMetric, scrollPos int) string {
+	innerW := width - 4
+	innerH := height - 2 // panel borders
+
+	// Column widths
+	goroutineCol := 12
+	memCol := 14
+	podCol := innerW - goroutineCol - memCol - 4 // separators
+	if podCol < 10 {
+		podCol = 10
+	}
+
+	// Header
+	header := TableHeader.Render(
+		PadRight("Pod", podCol) + "  " +
+			PadRight("Goroutines", goroutineCol) +
+			PadRight("Mem Alloc", memCol),
+	)
+
+	if len(pods) == 0 {
+		noData := LabelStyle.Render("No pod metrics available")
+		content := header + "\n" + noData
+		return Panel("Pod Resources", content, width, height)
+	}
+
+	// Clamp scroll position
+	maxScroll := len(pods) - (innerH - 1) // -1 for header
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if scrollPos > maxScroll {
+		scrollPos = maxScroll
+	}
+	if scrollPos < 0 {
+		scrollPos = 0
+	}
+
+	// Visible rows
+	visibleCount := innerH - 1 // minus header
+	if visibleCount < 1 {
+		visibleCount = 1
+	}
+	endIdx := scrollPos + visibleCount
+	if endIdx > len(pods) {
+		endIdx = len(pods)
+	}
+	visible := pods[scrollPos:endIdx]
+
+	var rows []string
+	for _, p := range visible {
+		name := Truncate(p.Pod, podCol)
+		name = PadRight(name, podCol)
+
+		goroutines := PadRight(FormatNum(p.Goroutines), goroutineCol)
+		mem := PadRight(FormatBytes(p.MemAlloc), memCol)
+
+		rows = append(rows, TableRow.Render(name+"  "+goroutines+mem))
+	}
+
+	// Scroll indicator
+	scrollInfo := ""
+	if maxScroll > 0 {
+		scrollInfo = LabelStyle.Render(fmt.Sprintf(" [%d-%d of %d]", scrollPos+1, endIdx, len(pods)))
+	}
+
+	content := header + "\n" + strings.Join(rows, "\n")
+	return Panel("Pod Resources"+scrollInfo, content, width, height)
+}

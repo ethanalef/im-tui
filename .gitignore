@@ -1,0 +1,21 @@
+# Binaries
+im-tui
+bin/
+
+# Export data
+*.jsonl
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Confidential - cluster access & environment config
+config.yaml
+
+# Go
+vendor/
