@@ -66,8 +66,9 @@ type AWSConfig struct {
 }
 
 type MSKConfig struct {
-	ClusterName    string              `yaml:"cluster_name"`
-	ConsumerGroups []MSKConsumerGroup  `yaml:"consumer_groups"`
+	ClusterName    string             `yaml:"cluster_name"`
+	AWSProfile     string             `yaml:"aws_profile"`
+	ConsumerGroups []MSKConsumerGroup `yaml:"consumer_groups"`
 }
 
 type MSKConsumerGroup struct {

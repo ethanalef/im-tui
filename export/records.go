@@ -107,6 +107,12 @@ type AppMetrics struct {
 	ChatAPI5XX      float64 `json:"chat_api_5xx"`
 	OpenIMAPI5XX    float64 `json:"openim_api_5xx"`
 	GatewaySendRate float64 `json:"gateway_send_rate"`
+
+	// Push pipeline (invisible queue visibility)
+	PushMsgInFlight     float64 `json:"push_in_flight"`
+	PushProcessingP95   float64 `json:"push_processing_p95_s"`
+	PushGrpcDeliveryP95 float64 `json:"push_grpc_delivery_p95_s"`
+	GatewayWsQueueP95   float64 `json:"gateway_ws_queue_p95"`
 }
 
 type InfraMetrics struct {

@@ -23,6 +23,7 @@ func RenderApplication(
 	tsRedisOK, tsMongoOK, tsLogin *collector.TimeSeries,
 	tsGatewaySend *collector.TimeSeries,
 	tsKafkaLag, tsMsgLagGrowth *collector.TimeSeries,
+	tsLongTimePush *collector.TimeSeries,
 	scrollPos int,
 ) string {
 	if prom == nil || prom.Err != nil {
@@ -58,7 +59,7 @@ func RenderApplication(
 
 	topPanel := renderSparklinePanel(width, topHeight, prom, tsOnline, tsMsgs, tsSendRate, tsGatewaySend)
 	midTopPanel := renderMessageCounters(width, midTopHeight, prom)
-	midBotPanel := renderStoragePipeline(width, midBotHeight, prom, cw, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth)
+	midBotPanel := renderStoragePipeline(width, midBotHeight, prom, cw, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush)
 	botPanel := renderPodMetricsTable(width, botHeight, prom.PodMetrics, scrollPos)
 
 	return lipgloss.JoinVertical(lipgloss.Left, topPanel, midTopPanel, midBotPanel, botPanel)
@@ -146,7 +147,7 @@ func renderMessageCounters(width, height int, prom *collector.PrometheusSnapshot
 }
 
 // renderStoragePipeline draws the msg-transfer storage pipeline, Kafka lag, push/login/API metrics.
-func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot, cw *collector.CloudWatchSnapshot, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth *collector.TimeSeries) string {
+func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot, cw *collector.CloudWatchSnapshot, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush *collector.TimeSeries) string {
 	innerW := width - 4
 
 	okStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorGreen)
@@ -191,10 +192,18 @@ func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot
 		leftLines = append(leftLines, LabelStyle.Render("Kafka Lag  ")+strings.Join(lagParts, LabelStyle.Render("  ")))
 	}
 
-	// Right column: push + activity + per-service 5XX
+	// Right column: push pipeline + activity + per-service 5XX
 	rightLines := []string{
-		LabelStyle.Render("Push Fail     ") + failRateValue(prom.PushFail) +
-			LabelStyle.Render("  Slow ") + failRateValue(prom.LongTimePush),
+		LabelStyle.Render("Push Slow(>10s) ") + failRateValue(prom.LongTimePush) +
+			LabelStyle.Render(" Fail ") + failRateValue(prom.PushFail),
+		LabelStyle.Render("Push Delivery  ") +
+			LabelStyle.Render("GW ") + okStyle.Render(FormatRate(prom.GatewaySendRate)) +
+			LabelStyle.Render("  Ratio ") + pushRatioValue(prom.GatewaySendRate, prom.SingleChatOK+prom.GroupChatOK),
+		LabelStyle.Render("Push Queue  ") +
+			LabelStyle.Render("InFlight ") + inFlightValue(prom.PushMsgInFlight) +
+			LabelStyle.Render("  Proc ") + pushLatencyValue(prom.PushProcessingP95) +
+			LabelStyle.Render("  gRPC ") + pushLatencyValue(prom.PushGrpcDeliveryP95) +
+			LabelStyle.Render("  WS ") + wsQueueValue(prom.GatewayWsQueueP95),
 		LabelStyle.Render("Login ") + okStyle.Render(FormatRate(prom.UserLogin)) +
 			LabelStyle.Render("  Register ") + okStyle.Render(FormatRate(prom.UserRegister)),
 		LabelStyle.Render("5XX  chat-api ") + failRateValue(prom.ChatAPI5XX) +
@@ -219,7 +228,7 @@ func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot
 	}
 
 	content := strings.Join(lines, "\n")
-	return Panel("Storage Pipeline / Kafka / Activity", content, width, height)
+	return Panel("Storage Pipeline / Push / Kafka", content, width, height)
 }
 
 // lagValue renders a consumer group lag value with color coding.
@@ -244,6 +253,61 @@ func failRateValue(rate float64) string {
 		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
 	}
 	return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+}
+
+// pushRatioValue renders the push delivery ratio (gateway sends per message processed).
+// During group messaging, this equals the average fan-out factor.
+// A dropping ratio during constant group size means the push pipeline is falling behind.
+func pushRatioValue(gatewaySend, msgProcessed float64) string {
+	if msgProcessed < 0.001 {
+		return lipgloss.NewStyle().Foreground(ColorSubtext).Render("--")
+	}
+	ratio := gatewaySend / msgProcessed
+	s := fmt.Sprintf("%.0f:1", ratio)
+	if ratio < 1 && gatewaySend > 0 {
+		// Gateway sending slower than production — push pipeline behind
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+}
+
+// inFlightValue renders a push in-flight gauge with color coding.
+func inFlightValue(n float64) string {
+	s := FormatNum(n)
+	switch {
+	case n >= 20:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	case n >= 5:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	default:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+	}
+}
+
+// pushLatencyValue renders a p95 latency in human-readable form with color coding.
+func pushLatencyValue(seconds float64) string {
+	s := FormatLatency(seconds)
+	switch {
+	case seconds >= 1:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	case seconds >= 0.1:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	default:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+	}
+}
+
+// wsQueueValue renders a WebSocket write queue depth (out of 256 capacity).
+func wsQueueValue(depth float64) string {
+	s := fmt.Sprintf("%.0f/256", depth)
+	switch {
+	case depth >= 200:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	case depth >= 50:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	default:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+	}
 }
 
 // renderPodMetricsTable draws a scrollable per-pod table showing goroutines and memory.

@@ -123,6 +123,10 @@ type Model struct {
 	TSUserLogin       *collector.TimeSeries
 	TSGatewaySendRate *collector.TimeSeries
 
+	// Push pipeline sparklines
+	TSLongTimePush    *collector.TimeSeries // Prometheus msg_long_time_push rate
+	TSPushInFlight    *collector.TimeSeries // push_msg_in_flight gauge
+
 	// Kafka / msg-transfer sparklines
 	TSKafkaLag        *collector.TimeSeries // CloudWatch MSK total SumOffsetLag
 	TSMsgLagGrowth    *collector.TimeSeries // Prometheus production-consumption rate delta
@@ -165,6 +169,8 @@ func NewModel(cfg Config) Model {
 		TSMongoInsertOK:   collector.NewTimeSeries(cap),
 		TSUserLogin:       collector.NewTimeSeries(cap),
 		TSGatewaySendRate: collector.NewTimeSeries(cap),
+		TSLongTimePush:    collector.NewTimeSeries(cap),
+		TSPushInFlight:    collector.NewTimeSeries(cap),
 		TSKafkaLag:        collector.NewTimeSeries(cap),
 		TSMsgLagGrowth:    collector.NewTimeSeries(cap),
 	}
@@ -210,6 +216,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.TSMongoInsertOK.Push(snap.MongoInsertOK)
 			m.TSUserLogin.Push(snap.UserLogin)
 			m.TSGatewaySendRate.Push(snap.GatewaySendRate)
+			m.TSLongTimePush.Push(snap.LongTimePush)
+			m.TSPushInFlight.Push(snap.PushMsgInFlight)
 			m.TSMsgLagGrowth.Push(snap.MsgLagGrowthRate)
 		}
 		m.LastUpdated = time.Now()
@@ -389,7 +397,11 @@ func (m Model) exportSnapshot() export.SnapshotRecord {
 			API5XX:          p.API5XX,
 			ChatAPI5XX:      p.ChatAPI5XX,
 			OpenIMAPI5XX:    p.OpenIMAPI5XX,
-			GatewaySendRate: p.GatewaySendRate,
+			GatewaySendRate:     p.GatewaySendRate,
+			PushMsgInFlight:     p.PushMsgInFlight,
+			PushProcessingP95:   p.PushProcessingP95,
+			PushGrpcDeliveryP95: p.PushGrpcDeliveryP95,
+			GatewayWsQueueP95:   p.GatewayWsQueueP95,
 		}
 	}
 

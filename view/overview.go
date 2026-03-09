@@ -123,7 +123,7 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 
 	// Storage pipeline failure indicators (compact)
 	anyStorageFail := prom.RedisInsertFail > 0 || prom.MongoInsertFail > 0 || prom.SeqSetFail > 0
-	anyPushFail := prom.PushFail > 0 || prom.API5XX > 0
+	anyPushFail := prom.PushFail > 0 || prom.API5XX > 0 || prom.LongTimePush > 0
 	anyLagIssue := prom.MsgLagGrowthRate > 0.5
 	if anyStorageFail || anyPushFail || anyLagIssue {
 		lines = append(lines, "")
@@ -136,6 +136,9 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 		}
 		if prom.SeqSetFail > 0 {
 			failParts = append(failParts, AlertCritical.Render("Seq:"+FormatRate(prom.SeqSetFail)))
+		}
+		if prom.LongTimePush > 0 {
+			failParts = append(failParts, AlertWarning.Render("PushSlow:"+FormatRate(prom.LongTimePush)))
 		}
 		if prom.PushFail > 0 {
 			failParts = append(failParts, AlertWarning.Render("Push:"+FormatRate(prom.PushFail)))

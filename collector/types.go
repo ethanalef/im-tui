@@ -80,6 +80,12 @@ type PrometheusSnapshot struct {
 	// Tier 3: gateway-level counter (now available via ServiceMonitor)
 	GatewaySendRate float64 // rate(msg_gateway_send_msg_total[1m])
 
+	// Push pipeline metrics (invisible queue visibility)
+	PushMsgInFlight     float64 // push_msg_in_flight gauge
+	PushProcessingP95   float64 // p95 of push_msg_processing_duration_seconds (seconds)
+	PushGrpcDeliveryP95 float64 // p95 of push_grpc_delivery_duration_seconds (seconds)
+	GatewayWsQueueP95   float64 // p95 of gateway_ws_write_queue_len (queue depth)
+
 	// msg-transfer health: production vs consumption rate delta
 	// Positive = lag growing, negative = catching up, zero = keeping pace
 	MsgLagGrowthRate float64

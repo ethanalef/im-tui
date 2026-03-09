@@ -85,6 +85,7 @@ func main() {
 		cfg.AWS.ElastiCache.Nodes,
 		cfg.AWS.ALB.LoadBalancers,
 		cfg.AWS.MSK.ClusterName,
+		cfg.AWS.MSK.AWSProfile,
 		mskCGs,
 	)
 	if err != nil {
@@ -233,6 +234,7 @@ func (a appModel) View() string {
 			m.TSRedisInsertOK, m.TSMongoInsertOK, m.TSUserLogin,
 			m.TSGatewaySendRate,
 			m.TSKafkaLag, m.TSMsgLagGrowth,
+			m.TSLongTimePush,
 			m.ScrollPos)
 	case model.TabInfra:
 		content = view.RenderInfrastructure(w, contentH, m.CWSnapshot, m.TSDocDBCPU, m.TSRdsCPU, m.TSAlbRT, m.ScrollPos)

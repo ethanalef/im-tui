@@ -343,6 +343,20 @@ func FormatNum(n float64) string {
 	return string(result)
 }
 
+// FormatLatency formats seconds into human-readable latency.
+func FormatLatency(seconds float64) string {
+	switch {
+	case seconds <= 0:
+		return "--"
+	case seconds >= 1:
+		return fmt.Sprintf("%.1fs", seconds)
+	case seconds >= 0.001:
+		return fmt.Sprintf("%.0fms", seconds*1000)
+	default:
+		return "<1ms"
+	}
+}
+
 // FormatRate formats a rate value.
 func FormatRate(n float64) string {
 	if n >= 1000 {

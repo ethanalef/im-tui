@@ -71,6 +71,11 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		{"openim_api_5xx", `sum(rate(http_count{namespace="` + ns + `",job=~".*openim-api.*",status=~"5.."}[1m]))`},
 		// Gateway-level send counter (now available via ServiceMonitor)
 		{"gateway_send_rate", `sum(rate(msg_gateway_send_msg_total{namespace="` + ns + `"}[1m]))`},
+		// Push pipeline metrics (invisible queue visibility)
+		{"push_in_flight", `sum(push_msg_in_flight{namespace="` + ns + `"})`},
+		{"push_processing_p95", `histogram_quantile(0.95, sum(rate(push_msg_processing_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"push_grpc_p95", `histogram_quantile(0.95, sum(rate(push_grpc_delivery_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"gw_ws_queue_p95", `histogram_quantile(0.95, sum(rate(gateway_ws_write_queue_len_bucket{namespace="` + ns + `"}[1m])) by (le))`},
 	}
 
 	for _, q := range queries {
@@ -121,6 +126,14 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 			snap.OpenIMAPI5XX = val
 		case "gateway_send_rate":
 			snap.GatewaySendRate = val
+		case "push_in_flight":
+			snap.PushMsgInFlight = val
+		case "push_processing_p95":
+			snap.PushProcessingP95 = val
+		case "push_grpc_p95":
+			snap.PushGrpcDeliveryP95 = val
+		case "gw_ws_queue_p95":
+			snap.GatewayWsQueueP95 = val
 		}
 	}
 

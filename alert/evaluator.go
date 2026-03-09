@@ -80,6 +80,9 @@ func (e *Evaluator) Evaluate(
 		if prom.PushFail > 0 {
 			alerts = append(alerts, Alert{LevelWarning, "Push Fail", fmt.Sprintf("%.2f/s", prom.PushFail), "Offline push notifications failing", now})
 		}
+		if prom.LongTimePush > 0 {
+			alerts = append(alerts, Alert{LevelWarning, "Push Slow >10s", fmt.Sprintf("%.2f/s", prom.LongTimePush), "Messages taking >10s from send to push delivery — push pipeline backlogged", now})
+		}
 		if prom.API5XX > 0 {
 			alerts = append(alerts, Alert{LevelWarning, "API 5XX", fmt.Sprintf("%.2f/s", prom.API5XX), "API server returning 5XX errors", now})
 		}

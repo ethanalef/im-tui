@@ -332,8 +332,8 @@ func RenderSystemMap(
 		if h := findHPA("msg-gateway", hpas); h != nil {
 			gwContent = append(gwContent, fmt.Sprintf(" %s", lbl(fmt.Sprintf("HPA %d/%d..%d", h.Current, h.MinReplicas, h.MaxReplicas))))
 		}
-		if !compact && prom != nil && prom.Err == nil {
-			gwContent = append(gwContent, fmt.Sprintf(" %s%s", lbl("rate:"), v(fmt.Sprintf("%.0f/s", prom.SendRate))))
+		if prom != nil && prom.Err == nil && prom.GatewaySendRate > 0 {
+			gwContent = append(gwContent, fmt.Sprintf(" %s%s", lbl("recv:"), v(FormatRate(prom.GatewaySendRate))))
 		}
 	} else {
 		gwContent = append(gwContent, " "+lbl("no pods"))
@@ -371,6 +371,14 @@ func RenderSystemMap(
 	trContent := []string{fmt.Sprintf(" %s %s", tr.dot(), v("transfer"))}
 	if tr.Total > 0 {
 		trContent = append(trContent, fmt.Sprintf(" %s  %s", lbl("OK"), v(fmt.Sprintf("%d/%d", tr.Running, tr.Total))))
+		if prom != nil && prom.Err == nil && (prom.MongoInsertOK > 0 || prom.RedisInsertOK > 0) {
+			if compact {
+				trContent = append(trContent, fmt.Sprintf(" %s%s", lbl("w:"), v(FormatRate(prom.MongoInsertOK+prom.RedisInsertOK))))
+			} else {
+				trContent = append(trContent, fmt.Sprintf(" %s%s", lbl("mgo:"), v(FormatRate(prom.MongoInsertOK))))
+				trContent = append(trContent, fmt.Sprintf(" %s%s", lbl("rds:"), v(FormatRate(prom.RedisInsertOK))))
+			}
+		}
 	} else {
 		trContent = append(trContent, " "+lbl("no pods"))
 	}
@@ -381,6 +389,9 @@ func RenderSystemMap(
 	pushContent := []string{fmt.Sprintf(" %s %s", push.dot(), v("push"))}
 	if push.Total > 0 {
 		pushContent = append(pushContent, fmt.Sprintf(" %s  %s", lbl("OK"), v(fmt.Sprintf("%d/%d", push.Running, push.Total))))
+		if prom != nil && prom.Err == nil && prom.LongTimePush > 0 {
+			pushContent = append(pushContent, " "+lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("slow:%.1f/s", prom.LongTimePush)))
+		}
 	} else {
 		pushContent = append(pushContent, " "+lbl("no pods"))
 	}
@@ -503,6 +514,47 @@ func RenderSystemMap(
 		}, stW)
 	}
 
+	// Kafka queue (bridge between msg and transfer)
+	kafkaColor := ColorGreen
+	if has, lvl := hasAlertFor(ev, "Kafka"); has {
+		if lvl == alert.LevelCritical {
+			kafkaColor = ColorRed
+		} else {
+			kafkaColor = ColorYellow
+		}
+	}
+	var kafkaBox []string
+	if cw != nil && cw.Err == nil && len(cw.MSK.ConsumerLag) > 0 {
+		kDot := lipgloss.NewStyle().Foreground(kafkaColor).Render("●")
+		kc := []string{fmt.Sprintf(" %s %s", kDot, v("Kafka"))}
+		if compact {
+			kc = append(kc, fmt.Sprintf(" %s%s", lbl("lag:"), fmtLagStyled(cw.MSK.TotalLag, kafkaColor)))
+		} else {
+			for _, cl := range cw.MSK.ConsumerLag {
+				kc = append(kc, fmt.Sprintf(" %s%s", lbl(fmt.Sprintf("%-7s", cl.Group+":")), fmtLagStyled(cl.Lag, kafkaColor)))
+			}
+		}
+		if prom != nil && prom.Err == nil {
+			rate := prom.MsgLagGrowthRate
+			var rateStr string
+			switch {
+			case rate > 0.5:
+				rateStr = lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf(" ▲+%.0f/s", rate))
+			case rate < -0.5:
+				rateStr = lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf(" ▼%.0f/s", rate))
+			default:
+				rateStr = lipgloss.NewStyle().Foreground(ColorGreen).Render(" = steady")
+			}
+			kc = append(kc, rateStr)
+		}
+		kafkaBox = sysBox(kc, svcW)
+	} else {
+		kafkaBox = sysBox([]string{
+			fmt.Sprintf(" %s %s", dimDot("●"), lbl("Kafka")),
+			" " + lbl("no data"),
+		}, svcW)
+	}
+
 	// ─── Arrow styles ──────────────────────────────────────────
 
 	extToGwStyle := "normal"
@@ -570,19 +622,23 @@ func RenderSystemMap(
 	if cw != nil && cw.Err == nil && cw.ALB.RequestCount > 0 {
 		m1[0] = fmt.Sprintf("%.0f req", cw.ALB.RequestCount)
 	}
-	if prom != nil && prom.Err == nil && prom.SendRate > 0 {
-		m1[1] = fmt.Sprintf("%.0f msg/s", prom.SendRate)
+	if prom != nil && prom.Err == nil && prom.GatewaySendRate > 0 {
+		m1[1] = FormatRate(prom.GatewaySendRate)
 	}
-	if cw != nil && cw.Err == nil && len(cw.Redis) > 0 {
-		tc := 0.0
-		for _, r := range cw.Redis {
-			tc += r.Connections
-		}
-		if tc > 0 {
-			m1[2] = fmt.Sprintf("%.0f conn", tc)
-		}
+	if prom != nil && prom.Err == nil && prom.RedisInsertOK > 0 {
+		m1[2] = FormatRate(prom.RedisInsertOK) + " wr"
 	}
 	ml1 := metricsAnnotation(colWidths, arrowW, m1)
+
+	// Kafka bridge: vertical connector and Kafka box in services column
+	col2Center := 1 + extW + arrowW + gwW + arrowW + svcW/2
+	kafkaVLine := strings.Repeat(" ", col2Center) + lipgloss.NewStyle().Foreground(kafkaColor).Render("│")
+	kafkaTier := composeTier(
+		[4][]string{empty, empty, kafkaBox, empty},
+		colWidths,
+		[3]arrowSpec{{false, ""}, {false, ""}, {false, ""}},
+		arrowW,
+	)
 
 	// Tier 2: Locust → api → transfer → DocDB
 	tier2 := composeTier(
@@ -598,8 +654,13 @@ func RenderSystemMap(
 
 	// Metric annotations between tier 2 and 3
 	var m2 [3]string
-	if cw != nil && cw.Err == nil && cw.DocDB.Connections > 0 {
-		m2[2] = fmt.Sprintf("%.0f conn", cw.DocDB.Connections)
+	if cw != nil && cw.Err == nil {
+		ops := cw.DocDB.InsertOps + cw.DocDB.QueryOps
+		if ops > 0 {
+			m2[2] = fmt.Sprintf("%.0f ops/m", ops)
+		} else if cw.DocDB.Connections > 0 {
+			m2[2] = fmt.Sprintf("%.0f conn", cw.DocDB.Connections)
+		}
 	}
 	ml2 := metricsAnnotation(colWidths, arrowW, m2)
 
@@ -636,6 +697,9 @@ func RenderSystemMap(
 	output = append(output, headerLine, "")
 	output = append(output, tier1...)
 	output = append(output, ml1)
+	output = append(output, kafkaVLine)
+	output = append(output, kafkaTier...)
+	output = append(output, kafkaVLine)
 	output = append(output, tier2...)
 	output = append(output, ml2)
 	if len(tier3) > 0 {
@@ -660,9 +724,34 @@ func RenderSystemMap(
 			lipgloss.NewStyle().Foreground(ColorSubtext).Render("──"),
 			lipgloss.NewStyle().Foreground(ColorBorder).Render("╌╌"),
 			lipgloss.NewStyle().Foreground(ColorRed).Render("━━")))
+	output = append(output,
+		fmt.Sprintf("  %s queue OK  %s lag warning  %s lag critical",
+			lipgloss.NewStyle().Foreground(ColorGreen).Render("│"),
+			lipgloss.NewStyle().Foreground(ColorYellow).Render("│"),
+			lipgloss.NewStyle().Foreground(ColorRed).Render("│")))
 
 	content := strings.Join(output, "\n")
 	return Panel("System Topology", content, width, height)
+}
+
+func fmtLag(n float64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", n/1_000_000)
+	case n >= 10_000:
+		return fmt.Sprintf("%.0fk", n/1000)
+	default:
+		return fmt.Sprintf("%.0f", n)
+	}
+}
+
+// fmtLagStyled renders a lag number: green if zero, kafkaColor if non-zero.
+func fmtLagStyled(lag float64, kafkaColor lipgloss.Color) string {
+	s := fmtLag(lag)
+	if lag == 0 {
+		return lipgloss.NewStyle().Foreground(ColorGreen).Bold(true).Render(s)
+	}
+	return lipgloss.NewStyle().Foreground(kafkaColor).Bold(true).Render(s)
 }
 
 func fmtCount5XX(count float64) string {
