@@ -17,23 +17,92 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
+// promKey identifies a unique Prometheus port-forward target for deduplication.
+type promKey struct {
+	Kubeconfig, Namespace, Service string
+	Port                           int
+}
+
 func main() {
-	cfgPath := flag.String("config", "config.yaml", "path to config.yaml")
+	cfgPaths := flag.String("config", "config.yaml", "comma-separated config file paths")
 	flag.Parse()
 
-	cfg, err := LoadConfig(*cfgPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-		os.Exit(1)
+	paths := splitTrimmed(*cfgPaths, ",")
+
+	// Load all configs
+	configs := make([]*Config, len(paths))
+	for i, p := range paths {
+		cfg, err := LoadConfig(p)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config %s: %v\n", p, err)
+			os.Exit(1)
+		}
+		configs[i] = cfg
 	}
 
-	// Build model config
+	// Start Prometheus port-forwards (deduplicated by service key)
+	promResolved := map[promKey]string{}
+	var promPFs []*portforward.PortForward
+
+	for _, cfg := range configs {
+		if cfg.Prometheus.URL != "" || cfg.Prometheus.Service == "" {
+			continue
+		}
+		pk := promKey{expandHome(cfg.Kubeconfig), cfg.Prometheus.Namespace, cfg.Prometheus.Service, cfg.Prometheus.Port}
+		if _, ok := promResolved[pk]; ok {
+			continue
+		}
+		pf := portforward.New(expandHome(cfg.Kubeconfig), cfg.Prometheus.Namespace, cfg.Prometheus.Service, cfg.Prometheus.Port, 0)
+		fmt.Fprintf(os.Stderr, "Starting port-forward to %s/%s:%d...\n",
+			cfg.Prometheus.Namespace, cfg.Prometheus.Service, cfg.Prometheus.Port)
+		if err := pf.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Prometheus port-forward failed: %v\n", err)
+			promResolved[pk] = ""
+		} else {
+			url := pf.LocalURL()
+			promResolved[pk] = url
+			promPFs = append(promPFs, pf)
+			fmt.Fprintf(os.Stderr, "Prometheus available at %s\n", url)
+		}
+	}
+	for _, pf := range promPFs {
+		defer pf.Stop()
+	}
+
+	// Build environment bundles
+	var envs []model.EnvBundle
+	for _, cfg := range configs {
+		envs = append(envs, buildEnv(cfg, promResolved))
+	}
+	for _, env := range envs {
+		if env.Exporter != nil {
+			defer env.Exporter.Close()
+		}
+	}
+
+	if len(envs) > 1 {
+		names := make([]string, len(envs))
+		for i, e := range envs {
+			names[i] = strings.ToUpper(e.Config.Environment)
+		}
+		fmt.Fprintf(os.Stderr, "Loaded environments: %s (press 'e' to switch)\n", strings.Join(names, ", "))
+	}
+
+	m := model.NewModel(envs)
+	app := appModel{Model: m}
+	p := tea.NewProgram(app, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 	mcfg := model.Config{
 		Namespace:          cfg.Namespace,
 		Environment:        cfg.Environment,
 		Kubeconfig:         expandHome(cfg.Kubeconfig),
 		SparklineCap:       cfg.SparklineCap,
-		PrometheusURL:      cfg.Prometheus.URL, // may be empty; resolved below
 		PrometheusInterval: cfg.Prometheus.Interval,
 		CloudWatchRegion:   cfg.CloudWatch.Region,
 		CloudWatchInterval: cfg.CloudWatch.Interval,
@@ -43,73 +112,41 @@ func main() {
 		LogInterval:        cfg.Logs.Interval,
 	}
 
-	m := model.NewModel(mcfg)
-
-	// Initialize Prometheus: auto port-forward or direct URL
-	var promPF *portforward.PortForward
+	// Resolve Prometheus URL (may come from shared port-forward)
 	promURL := cfg.Prometheus.URL
 	if promURL == "" && cfg.Prometheus.Service != "" {
-		// Auto port-forward to Prometheus
-		promPF = portforward.New(
-			expandHome(cfg.Kubeconfig),
-			cfg.Prometheus.Namespace,
-			cfg.Prometheus.Service,
-			cfg.Prometheus.Port,
-			0, // auto-pick local port
-		)
-		fmt.Fprintf(os.Stderr, "Starting port-forward to %s/%s:%d...\n",
-			cfg.Prometheus.Namespace, cfg.Prometheus.Service, cfg.Prometheus.Port)
-		if err := promPF.Start(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Prometheus port-forward failed: %v\n", err)
-		} else {
-			promURL = promPF.LocalURL()
-			fmt.Fprintf(os.Stderr, "Prometheus available at %s\n", promURL)
-		}
+		pk := promKey{expandHome(cfg.Kubeconfig), cfg.Prometheus.Namespace, cfg.Prometheus.Service, cfg.Prometheus.Port}
+		promURL = promResolved[pk]
 	}
+	mcfg.PrometheusURL = promURL
+
+	var promColl *collector.PrometheusCollector
 	if promURL != "" {
-		m.PromCollector = collector.NewPrometheusCollector(promURL)
+		promColl = collector.NewPrometheusCollector(promURL)
 	}
 
 	var mskCGs []collector.MSKConsumerGroupConfig
 	for _, cg := range cfg.AWS.MSK.ConsumerGroups {
-		mskCGs = append(mskCGs, collector.MSKConsumerGroupConfig{
-			Group: cg.Group,
-			Topic: cg.Topic,
-		})
+		mskCGs = append(mskCGs, collector.MSKConsumerGroupConfig{Group: cg.Group, Topic: cg.Topic})
 	}
-	cwCollector, err := collector.NewCloudWatchCollector(
+	cwColl, err := collector.NewCloudWatchCollector(
 		cfg.CloudWatch.Region,
-		cfg.AWS.DocDB.ClusterID,
-		cfg.AWS.DocDB.ClusterName,
+		cfg.AWS.DocDB.ClusterID, cfg.AWS.DocDB.ClusterName,
 		cfg.AWS.RDS.InstanceID,
 		cfg.AWS.ElastiCache.Nodes,
 		cfg.AWS.ALB.LoadBalancers,
-		cfg.AWS.MSK.ClusterName,
-		cfg.AWS.MSK.AWSProfile,
-		mskCGs,
+		cfg.AWS.MSK.ClusterName, cfg.AWS.MSK.AWSProfile, mskCGs,
 	)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: CloudWatch init failed: %v\n", err)
-	} else {
-		m.CWCollector = cwCollector
+		fmt.Fprintf(os.Stderr, "Warning: CloudWatch init failed for %s: %v\n", cfg.Environment, err)
+		cwColl = nil
 	}
 
-	m.K8sCollector = collector.NewKubernetesCollector(
-		expandHome(cfg.Kubeconfig),
-		cfg.Namespace,
-	)
+	k8sColl := collector.NewKubernetesCollector(expandHome(cfg.Kubeconfig), cfg.Namespace)
+	locustColl := collector.NewLocustCollector(cfg.Locust.URL)
+	logColl := collector.NewLogCollector(expandHome(cfg.Kubeconfig), cfg.Namespace, cfg.Logs.Services, cfg.Logs.SinceSec)
 
-	m.LocustCollector = collector.NewLocustCollector(cfg.Locust.URL)
-
-	m.LogCollector = collector.NewLogCollector(
-		expandHome(cfg.Kubeconfig),
-		cfg.Namespace,
-		cfg.Logs.Services,
-		cfg.Logs.SinceSec,
-	)
-
-	// Initialize alert evaluator
-	m.Evaluator = alert.NewEvaluator(alert.Thresholds{
+	evaluator := alert.NewEvaluator(alert.Thresholds{
 		CPUWarn:          cfg.Thresholds.CPUWarn,
 		CPUCrit:          cfg.Thresholds.CPUCrit,
 		MemoryWarn:       cfg.Thresholds.MemoryWarn,
@@ -131,16 +168,16 @@ func main() {
 		KafkaLagCrit:     cfg.Thresholds.KafkaLagCrit,
 	})
 
-	// Initialize JSONL exporter
+	var exporter *export.Exporter
 	if cfg.Export.Enabled {
 		startRecord := export.SessionStartRecord{
 			Environment: cfg.Environment,
 			Namespace:   cfg.Namespace,
 			Collectors: export.CollectorStatus{
-				Prometheus: m.PromCollector != nil,
-				CloudWatch: m.CWCollector != nil,
-				Kubernetes: m.K8sCollector != nil,
-				Locust:     m.LocustCollector != nil,
+				Prometheus: promColl != nil,
+				CloudWatch: cwColl != nil,
+				Kubernetes: k8sColl != nil,
+				Locust:     locustColl != nil,
 			},
 			Intervals: export.IntervalConfig{
 				PrometheusSec: int(cfg.Prometheus.Interval.Seconds()),
@@ -159,32 +196,40 @@ func main() {
 				ResponseTimeWarn: cfg.Thresholds.ResponseTimeWarn,
 			},
 		}
-		exporter, err := export.New(export.Config{
+		exp, err := export.New(export.Config{
 			Enabled:  true,
 			Path:     cfg.Export.Path,
 			Interval: cfg.Export.Interval,
 		}, startRecord)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: export init failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Warning: export init failed for %s: %v\n", cfg.Environment, err)
 		} else {
-			m.Exporter = exporter
-			defer exporter.Close()
+			exporter = exp
 		}
 	}
 
-	// Clean up port-forward on exit
-	if promPF != nil {
-		defer promPF.Stop()
+	return model.EnvBundle{
+		Config:          mcfg,
+		PromCollector:   promColl,
+		CWCollector:     cwColl,
+		K8sCollector:    k8sColl,
+		LocustCollector: locustColl,
+		LogCollector:    logColl,
+		Evaluator:       evaluator,
+		Exporter:        exporter,
 	}
+}
 
-	// Wrap model with view rendering
-	app := appModel{Model: m}
-
-	p := tea.NewProgram(app, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+func splitTrimmed(s, sep string) []string {
+	parts := strings.Split(s, sep)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
 	}
+	return out
 }
 
 // appModel wraps model.Model to provide View() rendering.
@@ -213,7 +258,7 @@ func (a appModel) View() string {
 
 	// Help overlay
 	if m.ShowHelp {
-		return renderHelp(w, h)
+		return renderHelp(w, h, len(m.Envs))
 	}
 
 	// Reserve 2 lines: tab bar (top) + status bar (bottom)
@@ -288,7 +333,11 @@ func renderTabBar(active int, locustOK bool, width int) string {
 }
 
 func renderStatusBar(m model.Model, width int) string {
-	env := lipgloss.NewStyle().Foreground(view.ColorCyan).Bold(true).Render(strings.ToUpper(m.Config.Environment))
+	envLabel := strings.ToUpper(m.Config.Environment)
+	if len(m.Envs) > 1 {
+		envLabel += fmt.Sprintf(" [%d/%d]", m.EnvIndex+1, len(m.Envs))
+	}
+	env := lipgloss.NewStyle().Foreground(view.ColorCyan).Bold(true).Render(envLabel)
 	ns := lipgloss.NewStyle().Foreground(view.ColorText).Render(m.Config.Namespace)
 
 	promSt := sourceStatus("Prom", m.PromStatus)
@@ -307,7 +356,11 @@ func renderStatusBar(m model.Model, width int) string {
 		pauseIndicator = lipgloss.NewStyle().Foreground(view.ColorYellow).Bold(true).Render(" PAUSED")
 	}
 
-	quit := lipgloss.NewStyle().Foreground(view.ColorSubtext).Render("q:quit ?:help")
+	hints := "q:quit ?:help"
+	if len(m.Envs) > 1 {
+		hints += " e:env"
+	}
+	quit := lipgloss.NewStyle().Foreground(view.ColorSubtext).Render(hints)
 
 	parts := []string{env, ns, promSt, cwSt, k8sSt, locustSt, logsSt, updated, pauseIndicator, quit}
 
@@ -336,7 +389,7 @@ func sourceStatus(name string, status string) string {
 	}
 }
 
-func renderHelp(w, h int) string {
+func renderHelp(w, h int, envCount int) string {
 	help := []string{
 		lipgloss.NewStyle().Foreground(view.ColorCyan).Bold(true).Render("IM System Monitor - Help"),
 		"",
@@ -349,21 +402,28 @@ func renderHelp(w, h int) string {
 		lipgloss.NewStyle().Foreground(view.ColorCyan).Render("Actions"),
 		view.LabelStyle.Render("  r            ") + view.ValueStyle.Render("Force refresh all"),
 		view.LabelStyle.Render("  p            ") + view.ValueStyle.Render("Pause/resume polling"),
-		view.LabelStyle.Render("  ?            ") + view.ValueStyle.Render("Toggle this help"),
-		view.LabelStyle.Render("  q / Ctrl+C   ") + view.ValueStyle.Render("Quit"),
+	}
+
+	if envCount > 1 {
+		help = append(help, view.LabelStyle.Render("  e            ")+view.ValueStyle.Render("Switch environment"))
+	}
+
+	help = append(help,
+		view.LabelStyle.Render("  ?            ")+view.ValueStyle.Render("Toggle this help"),
+		view.LabelStyle.Render("  q / Ctrl+C   ")+view.ValueStyle.Render("Quit"),
 		"",
 		lipgloss.NewStyle().Foreground(view.ColorCyan).Render("Tabs"),
-		view.LabelStyle.Render("  1 Overview   ") + view.ValueStyle.Render("Combined dashboard"),
-		view.LabelStyle.Render("  2 App        ") + view.ValueStyle.Render("Prometheus metrics"),
-		view.LabelStyle.Render("  3 Infra      ") + view.ValueStyle.Render("AWS CloudWatch"),
-		view.LabelStyle.Render("  4 Kubernetes ") + view.ValueStyle.Render("Pods, HPA, events"),
-		view.LabelStyle.Render("  5 Locust     ") + view.ValueStyle.Render("Load test (when active)"),
-		view.LabelStyle.Render("  6 Alerts     ") + view.ValueStyle.Render("Threshold violations"),
-		view.LabelStyle.Render("  7 Logs       ") + view.ValueStyle.Render("Service error logs"),
-		view.LabelStyle.Render("  8 Map        ") + view.ValueStyle.Render("System topology"),
+		view.LabelStyle.Render("  1 Overview   ")+view.ValueStyle.Render("Combined dashboard"),
+		view.LabelStyle.Render("  2 App        ")+view.ValueStyle.Render("Prometheus metrics"),
+		view.LabelStyle.Render("  3 Infra      ")+view.ValueStyle.Render("AWS CloudWatch"),
+		view.LabelStyle.Render("  4 Kubernetes ")+view.ValueStyle.Render("Pods, HPA, events"),
+		view.LabelStyle.Render("  5 Locust     ")+view.ValueStyle.Render("Load test (when active)"),
+		view.LabelStyle.Render("  6 Alerts     ")+view.ValueStyle.Render("Threshold violations"),
+		view.LabelStyle.Render("  7 Logs       ")+view.ValueStyle.Render("Service error logs"),
+		view.LabelStyle.Render("  8 Map        ")+view.ValueStyle.Render("System topology"),
 		"",
 		lipgloss.NewStyle().Foreground(view.ColorSubtext).Render("Press ? to close"),
-	}
+	)
 
 	content := strings.Join(help, "\n")
 	helpBox := view.HelpStyle.Render(content)
@@ -379,4 +439,3 @@ func expandHome(path string) string {
 	}
 	return path
 }
-

@@ -21,6 +21,7 @@ type KeyMap struct {
 	Help     key.Binding
 	Refresh  key.Binding
 	Pause    key.Binding
+	EnvNext  key.Binding
 }
 
 var Keys = KeyMap{
@@ -42,4 +43,5 @@ var Keys = KeyMap{
 	Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 	Refresh: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
 	Pause:   key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "pause")),
+	EnvNext: key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "switch env")),
 }

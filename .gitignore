@@ -16,6 +16,8 @@ bin/
 
 # Confidential - cluster access & environment config
 config.yaml
+config-uat.yaml
+config-prod.yaml
 
 # Go
 vendor/

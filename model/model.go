@@ -78,6 +78,10 @@ type Config struct {
 type Model struct {
 	Config Config
 
+	// Environment switching
+	Envs     []EnvBundle
+	EnvIndex int
+
 	// Tab state
 	ActiveTab int
 	Width     int
@@ -147,24 +151,36 @@ type Model struct {
 	LastErr string
 }
 
-func NewModel(cfg Config) Model {
-	cap := cfg.SparklineCap
+func NewModel(envs []EnvBundle) Model {
+	first := envs[0]
+	cap := first.Config.SparklineCap
 	if cap == 0 {
 		cap = 60
 	}
 
 	return Model{
-		Config:    cfg,
+		Envs:     envs,
+		EnvIndex: 0,
+
+		Config:          first.Config,
+		PromCollector:   first.PromCollector,
+		CWCollector:     first.CWCollector,
+		K8sCollector:    first.K8sCollector,
+		LocustCollector: first.LocustCollector,
+		LogCollector:    first.LogCollector,
+		Evaluator:       first.Evaluator,
+		Exporter:        first.Exporter,
+
 		ActiveTab: TabOverview,
 
-		TSOnlineUsers:   collector.NewTimeSeries(cap),
-		TSMsgs5Min:      collector.NewTimeSeries(cap),
-		TSSendRate:      collector.NewTimeSeries(cap),
-		TSLocustRPS:     collector.NewTimeSeries(cap),
-		TSLocustFail:    collector.NewTimeSeries(cap),
-		TSDocDBCPU:      collector.NewTimeSeries(cap),
-		TSRdsCPU:        collector.NewTimeSeries(cap),
-		TSAlbRT:         collector.NewTimeSeries(cap),
+		TSOnlineUsers:     collector.NewTimeSeries(cap),
+		TSMsgs5Min:        collector.NewTimeSeries(cap),
+		TSSendRate:        collector.NewTimeSeries(cap),
+		TSLocustRPS:       collector.NewTimeSeries(cap),
+		TSLocustFail:      collector.NewTimeSeries(cap),
+		TSDocDBCPU:        collector.NewTimeSeries(cap),
+		TSRdsCPU:          collector.NewTimeSeries(cap),
+		TSAlbRT:           collector.NewTimeSeries(cap),
 		TSRedisInsertOK:   collector.NewTimeSeries(cap),
 		TSMongoInsertOK:   collector.NewTimeSeries(cap),
 		TSUserLogin:       collector.NewTimeSeries(cap),
@@ -174,6 +190,63 @@ func NewModel(cfg Config) Model {
 		TSKafkaLag:        collector.NewTimeSeries(cap),
 		TSMsgLagGrowth:    collector.NewTimeSeries(cap),
 	}
+}
+
+// switchEnv changes the active environment, swapping collectors and resetting state.
+func (m Model) switchEnv(idx int) Model {
+	env := m.Envs[idx]
+	m.EnvIndex = idx
+	m.Config = env.Config
+	m.PromCollector = env.PromCollector
+	m.CWCollector = env.CWCollector
+	m.K8sCollector = env.K8sCollector
+	m.LocustCollector = env.LocustCollector
+	m.LogCollector = env.LogCollector
+	m.Evaluator = env.Evaluator
+	m.Exporter = env.Exporter
+
+	// Reset snapshots
+	m.PromSnapshot = nil
+	m.CWSnapshot = nil
+	m.K8sSnapshot = nil
+	m.LocustSnapshot = nil
+	m.LogSnapshot = nil
+
+	// Reset statuses
+	m.PromStatus = ""
+	m.CWStatus = ""
+	m.K8sStatus = ""
+	m.LocustStatus = ""
+	m.LogStatus = ""
+
+	// Reset timeseries
+	cap := m.Config.SparklineCap
+	if cap == 0 {
+		cap = 60
+	}
+	m.TSOnlineUsers = collector.NewTimeSeries(cap)
+	m.TSMsgs5Min = collector.NewTimeSeries(cap)
+	m.TSSendRate = collector.NewTimeSeries(cap)
+	m.TSLocustRPS = collector.NewTimeSeries(cap)
+	m.TSLocustFail = collector.NewTimeSeries(cap)
+	m.TSDocDBCPU = collector.NewTimeSeries(cap)
+	m.TSRdsCPU = collector.NewTimeSeries(cap)
+	m.TSAlbRT = collector.NewTimeSeries(cap)
+	m.TSRedisInsertOK = collector.NewTimeSeries(cap)
+	m.TSMongoInsertOK = collector.NewTimeSeries(cap)
+	m.TSUserLogin = collector.NewTimeSeries(cap)
+	m.TSGatewaySendRate = collector.NewTimeSeries(cap)
+	m.TSLongTimePush = collector.NewTimeSeries(cap)
+	m.TSPushInFlight = collector.NewTimeSeries(cap)
+	m.TSKafkaLag = collector.NewTimeSeries(cap)
+	m.TSMsgLagGrowth = collector.NewTimeSeries(cap)
+
+	// Reset scroll
+	m.ScrollPos = 0
+	m.ScrollXPos = 0
+	m.LastUpdated = time.Time{}
+
+	return m
 }
 
 func (m Model) Init() tea.Cmd {
@@ -358,6 +431,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, Keys.Pause):
 		m.Paused = !m.Paused
+
+	case key.Matches(msg, Keys.EnvNext):
+		if len(m.Envs) > 1 {
+			next := (m.EnvIndex + 1) % len(m.Envs)
+			m = m.switchEnv(next)
+			return m, tea.Batch(
+				m.collectCmd("prometheus"),
+				m.collectCmd("cloudwatch"),
+				m.collectCmd("kubernetes"),
+				m.collectCmd("locust"),
+				m.collectCmd("logs"),
+			)
+		}
 	}
 
 	return m, nil
