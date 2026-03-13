@@ -283,7 +283,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.PromStatus = connStatus(snap.Err)
 		if snap.Err == nil {
 			m.TSOnlineUsers.Push(snap.OnlineUsers)
-			m.TSMsgs5Min.Push(snap.MsgsIn5Min)
+			m.TSMsgs5Min.Push(snap.MsgsIn5Min * 300) // rate/s → count in 5 min
 			m.TSSendRate.Push(snap.SendRate)
 			m.TSRedisInsertOK.Push(snap.RedisInsertOK)
 			m.TSMongoInsertOK.Push(snap.MongoInsertOK)

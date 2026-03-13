@@ -362,6 +362,9 @@ func FormatRate(n float64) string {
 	if n >= 1000 {
 		return fmt.Sprintf("%.1fk/s", n/1000)
 	}
+	if n > 0 && n < 1 {
+		return fmt.Sprintf("%.1f/s", n)
+	}
 	return fmt.Sprintf("%.0f/s", n)
 }
 

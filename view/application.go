@@ -84,7 +84,7 @@ func renderSparklinePanel(width, height int, prom *collector.PrometheusSnapshot,
 		fmt   string
 	}{
 		{"Online Users", tsOnline, prom.OnlineUsers, FormatNum(prom.OnlineUsers)},
-		{"Msgs / 5 min", tsMsgs, prom.MsgsIn5Min, FormatNum(prom.MsgsIn5Min)},
+		{"Msgs / 5 min", tsMsgs, prom.MsgsIn5Min * 300, FormatNum(prom.MsgsIn5Min * 300)},
 		{"Send Rate", tsSendRate, prom.SendRate, FormatRate(prom.SendRate)},
 		{"GW Send Rate", tsGatewaySend, prom.GatewaySendRate, FormatRate(prom.GatewaySendRate)},
 	}
