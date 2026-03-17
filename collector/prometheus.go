@@ -157,12 +157,40 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		}
 	}
 
-	// Per-pod memory
+	// Per-pod memory (alloc, heap in-use, heap released)
 	memAlloc, err := p.queryVector(fmt.Sprintf(`go_memstats_alloc_bytes{namespace="%s"}`, namespace))
 	if err == nil {
 		for i, pm := range snap.PodMetrics {
 			if val, ok := memAlloc[pm.Pod]; ok {
 				snap.PodMetrics[i].MemAlloc = val
+			}
+		}
+	}
+
+	heapInUse, err := p.queryVector(fmt.Sprintf(`go_memstats_heap_inuse_bytes{namespace="%s"}`, namespace))
+	if err == nil {
+		for i, pm := range snap.PodMetrics {
+			if val, ok := heapInUse[pm.Pod]; ok {
+				snap.PodMetrics[i].HeapInUse = val
+			}
+		}
+	}
+
+	heapReleased, err := p.queryVector(fmt.Sprintf(`go_memstats_heap_released_bytes{namespace="%s"}`, namespace))
+	if err == nil {
+		for i, pm := range snap.PodMetrics {
+			if val, ok := heapReleased[pm.Pod]; ok {
+				snap.PodMetrics[i].HeapReleased = val
+			}
+		}
+	}
+
+	// Per-pod online user count (msg-gateway only)
+	onlineUsers, err := p.queryVector(fmt.Sprintf(`online_user_num{namespace="%s"}`, namespace))
+	if err == nil {
+		for i, pm := range snap.PodMetrics {
+			if val, ok := onlineUsers[pm.Pod]; ok {
+				snap.PodMetrics[i].OnlineUsers = val
 			}
 		}
 	}

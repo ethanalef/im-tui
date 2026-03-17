@@ -95,9 +95,12 @@ type PrometheusSnapshot struct {
 }
 
 type PodMetric struct {
-	Pod        string
-	Goroutines float64
-	MemAlloc   float64 // bytes
+	Pod          string
+	Goroutines   float64
+	MemAlloc     float64 // go_memstats_alloc_bytes
+	HeapInUse    float64 // go_memstats_heap_inuse_bytes (RSS leak indicator)
+	HeapReleased float64 // go_memstats_heap_released_bytes (low = RSS not returned to OS)
+	OnlineUsers  float64 // online_user_num gauge (msg-gateway only)
 }
 
 // CloudWatchSnapshot holds all AWS metrics.
@@ -131,6 +134,8 @@ type DocDBMetrics struct {
 	UpdateOps       float64
 	DeleteOps       float64
 	CursorsTimedOut float64 // DatabaseCursorsTimedOut
+	ReadIOPS        float64 // ReadIOPS
+	WriteIOPS       float64 // WriteIOPS
 }
 
 type RDSMetrics struct {
@@ -145,12 +150,14 @@ type RDSMetrics struct {
 }
 
 type RedisNodeMetrics struct {
-	NodeID      string
-	CPUPercent  float64
+	NodeID        string
+	CPUPercent    float64
 	MemoryPercent float64
-	HitRate     float64
-	Evictions   float64
-	Connections float64
+	HitRate       float64
+	Evictions     float64
+	Connections   float64
+	GetTypeCmds   float64 // GetTypeCmds (read ops/sec)
+	SetTypeCmds   float64 // SetTypeCmds (write ops/sec)
 }
 
 type ALBMetrics struct {

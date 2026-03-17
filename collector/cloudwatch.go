@@ -100,6 +100,8 @@ func (c *CloudWatchCollector) Collect() CloudWatchSnapshot {
 	addQuery("docdb_query", "AWS/DocDB-Elastic", "OpcountersQuery", "Sum", docdbDims)
 	addQuery("docdb_update", "AWS/DocDB-Elastic", "OpcountersUpdate", "Sum", docdbDims)
 	addQuery("docdb_delete", "AWS/DocDB-Elastic", "OpcountersDelete", "Sum", docdbDims)
+	addQuery("docdb_riops", "AWS/DocDB-Elastic", "ReadIOPS", "Average", docdbDims)
+	addQuery("docdb_wiops", "AWS/DocDB-Elastic", "WriteIOPS", "Average", docdbDims)
 
 	// RDS metrics
 	rdsDims := []cwtypes.Dimension{{Name: aws.String("DBInstanceIdentifier"), Value: aws.String(c.rdsID)}}
@@ -120,6 +122,8 @@ func (c *CloudWatchCollector) Collect() CloudWatchSnapshot {
 		addQuery("redis_hit_"+node, "AWS/ElastiCache", "CacheHitRate", "Average", dims)
 		addQuery("redis_evict_"+node, "AWS/ElastiCache", "Evictions", "Sum", dims)
 		addQuery("redis_conn_"+node, "AWS/ElastiCache", "CurrConnections", "Average", dims)
+		addQuery("redis_get_"+node, "AWS/ElastiCache", "GetTypeCmds", "Average", dims)
+		addQuery("redis_set_"+node, "AWS/ElastiCache", "SetTypeCmds", "Average", dims)
 	}
 
 	// ALB metrics
@@ -161,7 +165,7 @@ func (c *CloudWatchCollector) Collect() CloudWatchSnapshot {
 		return vals[id]
 	}
 
-	// DocDB
+	// DocDB (10 metrics: indices 0-9)
 	snap.DocDB = DocDBMetrics{
 		CPUPercent:      get(0),
 		CursorsTimedOut: get(1),
@@ -171,24 +175,26 @@ func (c *CloudWatchCollector) Collect() CloudWatchSnapshot {
 		QueryOps:        get(5),
 		UpdateOps:       get(6),
 		DeleteOps:       get(7),
+		ReadIOPS:        get(8),
+		WriteIOPS:       get(9),
 	}
 
-	// RDS
+	// RDS (8 metrics: indices 10-17)
 	snap.RDS = RDSMetrics{
-		CPUPercent:   get(8),
-		Connections:  get(9),
-		FreeMemory:   get(10),
-		ReadLatency:  get(11),
-		WriteLatency: get(12),
-		DiskQueue:    get(13),
-		ReadIOPS:     get(14),
-		WriteIOPS:    get(15),
+		CPUPercent:   get(10),
+		Connections:  get(11),
+		FreeMemory:   get(12),
+		ReadLatency:  get(13),
+		WriteLatency: get(14),
+		DiskQueue:    get(15),
+		ReadIOPS:     get(16),
+		WriteIOPS:    get(17),
 	}
 
-	// Redis
-	base := 16
+	// Redis (7 metrics per node: starting at index 18)
+	base := 18
 	for i, node := range c.redisNodes {
-		offset := base + i*5
+		offset := base + i*7
 		snap.Redis = append(snap.Redis, RedisNodeMetrics{
 			NodeID:        node,
 			CPUPercent:    get(offset),
@@ -196,11 +202,13 @@ func (c *CloudWatchCollector) Collect() CloudWatchSnapshot {
 			HitRate:       get(offset + 2),
 			Evictions:     get(offset + 3),
 			Connections:   get(offset + 4),
+			GetTypeCmds:   get(offset + 5),
+			SetTypeCmds:   get(offset + 6),
 		})
 	}
 
 	// ALB
-	albBase := base + len(c.redisNodes)*5
+	albBase := base + len(c.redisNodes)*7
 	for i := range c.albNames {
 		offset := albBase + i*4
 		snap.ALB = ALBMetrics{

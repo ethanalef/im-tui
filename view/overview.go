@@ -121,6 +121,30 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 			StatusErr.Render("Fail ")+failValue(prom.GroupChatFail, groupFail),
 	)
 
+	// Gateway dead connection health check
+	for _, pm := range prom.PodMetrics {
+		isGW := strings.Contains(pm.Pod, "msg-gateway") || strings.Contains(pm.Pod, "gateway")
+		if !isGW {
+			continue
+		}
+		heapMB := pm.HeapInUse / (1 << 20)
+		switch {
+		case pm.Goroutines >= 10000:
+			lines = append(lines, "")
+			lines = append(lines,
+				AlertCritical.Render("GW DEGRADED")+
+					LabelStyle.Render(" goroutines=")+AlertCritical.Render(FormatNum(pm.Goroutines))+
+					LabelStyle.Render(" heap=")+AlertCritical.Render(fmt.Sprintf("%.0fMi", heapMB))+
+					LabelStyle.Render(" REDEPLOY"))
+		case pm.Goroutines >= 1000:
+			lines = append(lines, "")
+			lines = append(lines,
+				AlertWarning.Render("GW WARN")+
+					LabelStyle.Render(" goroutines=")+AlertWarning.Render(FormatNum(pm.Goroutines))+
+					LabelStyle.Render(" heap=")+AlertWarning.Render(fmt.Sprintf("%.0fMi", heapMB)))
+		}
+	}
+
 	// Storage pipeline failure indicators (compact)
 	anyStorageFail := prom.RedisInsertFail > 0 || prom.MongoInsertFail > 0 || prom.SeqSetFail > 0
 	anyPushFail := prom.PushFail > 0 || prom.API5XX > 0 || prom.LongTimePush > 0

@@ -2,6 +2,7 @@ package alert
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -199,12 +200,48 @@ func (e *Evaluator) Evaluate(
 			alerts = append(alerts, Alert{LevelWarning, "openim-api 5XX", fmt.Sprintf("%.2f/s", prom.OpenIMAPI5XX), "openim-api returning 5XX errors", now})
 		}
 
-		// Goroutine checks per pod
+		// Goroutine checks per pod — gateway pods get specific dead connection leak messaging
 		for _, pm := range prom.PodMetrics {
+			isGW := strings.Contains(pm.Pod, "msg-gateway") || strings.Contains(pm.Pod, "gateway")
 			if e.thresholds.GoroutineCrit > 0 && pm.Goroutines >= e.thresholds.GoroutineCrit {
-				alerts = append(alerts, Alert{LevelCritical, "Goroutines " + pm.Pod, fmt.Sprintf("%.0f", pm.Goroutines), "Goroutine leak suspected", now})
+				if isGW {
+					heapMB := pm.HeapInUse / (1 << 20)
+					alerts = append(alerts, Alert{LevelCritical,
+						"GW Dead Conns " + pm.Pod,
+						fmt.Sprintf("%.0f goroutines, %.0f MiB heap", pm.Goroutines, heapMB),
+						"DEAD CONNECTION LEAK: zombie goroutines from unclean WS disconnects. " +
+							"All messaging degraded — redeploy msg-gateway immediately",
+						now})
+				} else {
+					alerts = append(alerts, Alert{LevelCritical, "Goroutines " + pm.Pod, fmt.Sprintf("%.0f", pm.Goroutines), "Goroutine leak suspected", now})
+				}
 			} else if e.thresholds.GoroutineWarn > 0 && pm.Goroutines >= e.thresholds.GoroutineWarn {
-				alerts = append(alerts, Alert{LevelWarning, "Goroutines " + pm.Pod, fmt.Sprintf("%.0f", pm.Goroutines), "Goroutine count elevated", now})
+				if isGW {
+					alerts = append(alerts, Alert{LevelWarning,
+						"GW Dead Conns " + pm.Pod,
+						fmt.Sprintf("%.0f goroutines", pm.Goroutines),
+						"Dead connections accumulating — monitor for further growth, redeploy if degraded",
+						now})
+				} else {
+					alerts = append(alerts, Alert{LevelWarning, "Goroutines " + pm.Pod, fmt.Sprintf("%.0f", pm.Goroutines), "Goroutine count elevated", now})
+				}
+			} else if isGW && pm.OnlineUsers > 0 {
+				// Ratio-based gateway check: expected = users*3 + 2200 (MemoryQueue workers + infra)
+				expected := pm.OnlineUsers*3 + 2200
+				excess := pm.Goroutines - expected
+				if excess >= 5000 {
+					alerts = append(alerts, Alert{LevelCritical,
+						"GW Dead Conns " + pm.Pod,
+						fmt.Sprintf("%.0f goroutines vs %.0f expected (%.0f users)", pm.Goroutines, expected, pm.OnlineUsers),
+						"Zombie goroutine leak — excess goroutines far above online user count",
+						now})
+				} else if excess >= 2000 {
+					alerts = append(alerts, Alert{LevelWarning,
+						"GW Goroutines " + pm.Pod,
+						fmt.Sprintf("%.0f goroutines vs %.0f expected (%.0f users)", pm.Goroutines, expected, pm.OnlineUsers),
+						"Gateway goroutines elevated above expected — possible dead connections",
+						now})
+				}
 			}
 		}
 	}

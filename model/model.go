@@ -462,7 +462,7 @@ func (m Model) exportSnapshot() export.SnapshotRecord {
 	}
 
 	if p := m.PromSnapshot; p != nil && p.Err == nil {
-		snap.App = &export.AppMetrics{
+		app := &export.AppMetrics{
 			OnlineUsers:     p.OnlineUsers,
 			Msgs5Min:        p.MsgsIn5Min,
 			SendRate:        p.SendRate,
@@ -489,6 +489,31 @@ func (m Model) exportSnapshot() export.SnapshotRecord {
 			PushGrpcDeliveryP95: p.PushGrpcDeliveryP95,
 			GatewayWsQueueP95:   p.GatewayWsQueueP95,
 		}
+		// Export per-gateway-pod health for dead connection leak analysis
+		for _, pm := range p.PodMetrics {
+			isGW := strings.Contains(pm.Pod, "msg-gateway") || strings.Contains(pm.Pod, "gateway")
+			if !isGW {
+				continue
+			}
+			status := "OK"
+			switch {
+			case pm.Goroutines >= 5000:
+				status = "DEGRADED"
+			case pm.Goroutines >= 1000:
+				status = "WARN"
+			case pm.HeapInUse/(1<<20) >= 500:
+				status = "WARN"
+			}
+			app.GatewayHealth = append(app.GatewayHealth, export.GatewayHealthRecord{
+				Pod:            pm.Pod,
+				Status:         status,
+				Goroutines:     pm.Goroutines,
+				HeapInUseMB:    pm.HeapInUse / (1 << 20),
+				HeapReleasedMB: pm.HeapReleased / (1 << 20),
+				MemAllocMB:     pm.MemAlloc / (1 << 20),
+			})
+		}
+		snap.App = app
 	}
 
 	if cw := m.CWSnapshot; cw != nil && cw.Err == nil {
@@ -496,6 +521,8 @@ func (m Model) exportSnapshot() export.SnapshotRecord {
 			DocDBCPUPct:     cw.DocDB.CPUPercent,
 			DocDBConns:      cw.DocDB.Connections,
 			DocDBCursors:    cw.DocDB.CursorsTimedOut,
+			DocDBReadIOPS:   cw.DocDB.ReadIOPS,
+			DocDBWriteIOPS:  cw.DocDB.WriteIOPS,
 			RDSCPUPct:       cw.RDS.CPUPercent,
 			RDSConns:        cw.RDS.Connections,
 			RDSFreeMemBytes: cw.RDS.FreeMemory,

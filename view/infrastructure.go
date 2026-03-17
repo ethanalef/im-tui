@@ -77,6 +77,10 @@ func renderDocDB(w, h int, d collector.DocDBMetrics, ts *collector.TimeSeries) s
 			lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("Q:%.0f ", d.QueryOps)) +
 			lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("U:%.0f ", d.UpdateOps)) +
 			lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("D:%.0f", d.DeleteOps)),
+		LabelStyle.Render("IOPS: ") +
+			lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("R:%.0f ", d.ReadIOPS)) +
+			lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("W:%.0f ", d.WriteIOPS)) +
+			LabelStyle.Render("Total: ") + ValueStyle.Render(fmt.Sprintf("%.0f", d.ReadIOPS+d.WriteIOPS)),
 	}
 
 	if ts != nil && ts.Len() > 0 {
@@ -154,6 +158,11 @@ func renderRedis(w, h int, nodes []collector.RedisNodeMetrics) string {
 			LabelStyle.Render("  Hit Rate: ")+lipgloss.NewStyle().Foreground(hitColor).Render(fmt.Sprintf("%.1f%%", n.HitRate))+
 				LabelStyle.Render("  Evict: ")+ValueStyle.Render(fmt.Sprintf("%.0f", n.Evictions))+
 				LabelStyle.Render("  Conn: ")+ValueStyle.Render(fmt.Sprintf("%.0f", n.Connections)),
+		)
+		lines = append(lines,
+			LabelStyle.Render("  Cmds: ")+
+				lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("GET:%.0f ", n.GetTypeCmds))+
+				lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("SET:%.0f", n.SetTypeCmds)),
 		)
 
 		if i < len(nodes)-1 {

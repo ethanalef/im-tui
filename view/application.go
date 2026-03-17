@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"im-tui/collector"
@@ -285,7 +286,11 @@ func inFlightValue(n float64) string {
 }
 
 // pushLatencyValue renders a p95 latency in human-readable form with color coding.
+// NaN means no observations in the time window (idle).
 func pushLatencyValue(seconds float64) string {
+	if math.IsNaN(seconds) {
+		return lipgloss.NewStyle().Foreground(ColorSubtext).Render("--")
+	}
 	s := FormatLatency(seconds)
 	switch {
 	case seconds >= 1:
@@ -298,7 +303,11 @@ func pushLatencyValue(seconds float64) string {
 }
 
 // wsQueueValue renders a WebSocket write queue depth (out of 256 capacity).
+// NaN means no observations in the time window (idle) — display as 0.
 func wsQueueValue(depth float64) string {
+	if math.IsNaN(depth) {
+		depth = 0
+	}
 	s := fmt.Sprintf("%.0f/256", depth)
 	switch {
 	case depth >= 200:
@@ -310,15 +319,104 @@ func wsQueueValue(depth float64) string {
 	}
 }
 
-// renderPodMetricsTable draws a scrollable per-pod table showing goroutines and memory.
+// isGatewayPod returns true if the pod name indicates a msg-gateway pod.
+func isGatewayPod(podName string) bool {
+	return strings.Contains(podName, "msg-gateway") || strings.Contains(podName, "gateway")
+}
+
+// gwHealthStatus evaluates gateway health by comparing goroutines to online users.
+// Each online user needs ~3 goroutines (readMessage + loopSend + doPing/heartbeat).
+// A healthy gateway has goroutines ≈ users*3 + 2200 (2048 MemoryQueue workers + ~150 infra).
+// Returns: "OK", "WARN", "DEGRADED" and a descriptive reason.
+func gwHealthStatus(p collector.PodMetric) (string, string) {
+	goroutines := p.Goroutines
+	users := p.OnlineUsers
+	heapMB := p.HeapInUse / (1 << 20)
+
+	// When online user data is available, use ratio-based detection.
+	if users > 0 {
+		expected := users*3 + 2200 // 3 goroutines per user + 2048 MemoryQueue workers + ~150 infra
+		excess := goroutines - expected
+		switch {
+		case excess >= 5000:
+			return "DEGRADED", fmt.Sprintf("%.0f goroutines vs %.0f expected (%.0f users) — zombie leak", goroutines, expected, users)
+		case excess >= 2000:
+			return "WARN", fmt.Sprintf("%.0f goroutines vs %.0f expected (%.0f users) — possible leak", goroutines, expected, users)
+		}
+	} else {
+		// No online user data — fall back to high absolute thresholds.
+		switch {
+		case goroutines >= 50000:
+			return "DEGRADED", fmt.Sprintf("%.0f goroutines — no online_user_num data", goroutines)
+		case goroutines >= 20000:
+			return "WARN", fmt.Sprintf("%.0f goroutines — no online_user_num data", goroutines)
+		}
+	}
+
+	if heapMB >= 500 {
+		return "WARN", fmt.Sprintf("%.0f MiB heap — elevated memory", heapMB)
+	}
+	return "OK", ""
+}
+
+// goroutineStyled renders a goroutine count with color coding.
+// For gateway pods, color is based on excess above expected (users*3 + base).
+func goroutineStyled(count float64, isGW bool, onlineUsers float64) string {
+	s := FormatNum(count)
+	if isGW {
+		expected := onlineUsers*3 + 2200
+		excess := count - expected
+		switch {
+		case excess >= 5000:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+		case excess >= 2000:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorOrange).Render(s)
+		case excess >= 500:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+		default:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+		}
+	}
+	// General service thresholds
+	switch {
+	case count >= 10000:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	case count >= 5000:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	default:
+		return ValueStyle.Render(s)
+	}
+}
+
+// heapStyled renders heap in-use with color coding.
+func heapStyled(bytes float64) string {
+	s := FormatBytes(bytes)
+	mb := bytes / (1 << 20)
+	switch {
+	case mb >= 1000:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	case mb >= 500:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorOrange).Render(s)
+	case mb >= 200:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	default:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+	}
+}
+
+// renderPodMetricsTable draws a scrollable per-pod table showing goroutines, memory,
+// and gateway health status. Gateway pods are color-coded with dead connection leak detection.
 func renderPodMetricsTable(width, height int, pods []collector.PodMetric, scrollPos int) string {
 	innerW := width - 4
 	innerH := height - 2 // panel borders
 
-	// Column widths
+	// Column widths — expanded to include HeapInUse, Status, and Online columns
+	statusCol := 10
+	onlineCol := 10
 	goroutineCol := 12
-	memCol := 14
-	podCol := innerW - goroutineCol - memCol - 4 // separators
+	memCol := 12
+	heapCol := 12
+	podCol := innerW - statusCol - onlineCol - goroutineCol - memCol - heapCol - 8 // separators
 	if podCol < 10 {
 		podCol = 10
 	}
@@ -326,7 +424,10 @@ func renderPodMetricsTable(width, height int, pods []collector.PodMetric, scroll
 	// Header
 	header := TableHeader.Render(
 		PadRight("Pod", podCol) + "  " +
+			PadRight("Status", statusCol) +
+			PadRight("Online", onlineCol) +
 			PadRight("Goroutines", goroutineCol) +
+			PadRight("Heap InUse", heapCol) +
 			PadRight("Mem Alloc", memCol),
 	)
 
@@ -334,6 +435,18 @@ func renderPodMetricsTable(width, height int, pods []collector.PodMetric, scroll
 		noData := LabelStyle.Render("No pod metrics available")
 		content := header + "\n" + noData
 		return Panel("Pod Resources", content, width, height)
+	}
+
+	// Check if any gateway pod is degraded for panel title
+	gwDegraded := false
+	for _, p := range pods {
+		if isGatewayPod(p.Pod) {
+			status, _ := gwHealthStatus(p)
+			if status == "DEGRADED" {
+				gwDegraded = true
+				break
+			}
+		}
 	}
 
 	// Clamp scroll position
@@ -361,13 +474,48 @@ func renderPodMetricsTable(width, height int, pods []collector.PodMetric, scroll
 
 	var rows []string
 	for _, p := range visible {
+		isGW := isGatewayPod(p.Pod)
 		name := Truncate(p.Pod, podCol)
 		name = PadRight(name, podCol)
 
-		goroutines := PadRight(FormatNum(p.Goroutines), goroutineCol)
+		// Status column — gateway-specific health check
+		var statusStr string
+		if isGW {
+			status, _ := gwHealthStatus(p)
+			switch status {
+			case "DEGRADED":
+				statusStr = lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render("DEGRADED")
+			case "WARN":
+				statusStr = lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render("WARN")
+			default:
+				statusStr = lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render("OK")
+			}
+		} else {
+			statusStr = LabelStyle.Render("--")
+		}
+		statusStr = PadRight(statusStr, statusCol)
+
+		// Online users column — only meaningful for gateway pods
+		var onlineStr string
+		if isGW && p.OnlineUsers > 0 {
+			onlineStr = ValueStyle.Render(FormatNum(p.OnlineUsers))
+		} else if isGW {
+			onlineStr = LabelStyle.Render("0")
+		} else {
+			onlineStr = LabelStyle.Render("--")
+		}
+		onlineStr = PadRight(onlineStr, onlineCol)
+
+		goroutines := PadRight(goroutineStyled(p.Goroutines, isGW, p.OnlineUsers), goroutineCol)
+		heap := PadRight(heapStyled(p.HeapInUse), heapCol)
 		mem := PadRight(FormatBytes(p.MemAlloc), memCol)
 
-		rows = append(rows, TableRow.Render(name+"  "+goroutines+mem))
+		row := name + "  " + statusStr + onlineStr + goroutines + heap + mem
+		if isGW {
+			rows = append(rows, row) // already color-coded per cell
+		} else {
+			rows = append(rows, TableRow.Render(row))
+		}
 	}
 
 	// Scroll indicator
@@ -376,6 +524,12 @@ func renderPodMetricsTable(width, height int, pods []collector.PodMetric, scroll
 		scrollInfo = LabelStyle.Render(fmt.Sprintf(" [%d-%d of %d]", scrollPos+1, endIdx, len(pods)))
 	}
 
+	// Panel title highlights degraded gateway
+	panelTitle := "Pod Resources"
+	if gwDegraded {
+		panelTitle = "Pod Resources " + lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render("GATEWAY DEGRADED")
+	}
+
 	content := header + "\n" + strings.Join(rows, "\n")
-	return Panel("Pod Resources"+scrollInfo, content, width, height)
+	return Panel(panelTitle+scrollInfo, content, width, height)
 }

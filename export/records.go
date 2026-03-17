@@ -113,12 +113,27 @@ type AppMetrics struct {
 	PushProcessingP95   float64 `json:"push_processing_p95_s"`
 	PushGrpcDeliveryP95 float64 `json:"push_grpc_delivery_p95_s"`
 	GatewayWsQueueP95   float64 `json:"gateway_ws_queue_p95"`
+
+	// Gateway dead connection health (per gateway pod)
+	GatewayHealth []GatewayHealthRecord `json:"gateway_health,omitempty"`
+}
+
+// GatewayHealthRecord captures per-gateway-pod health for dead connection leak detection.
+type GatewayHealthRecord struct {
+	Pod          string  `json:"pod"`
+	Status       string  `json:"status"` // OK, WARN, DEGRADED
+	Goroutines   float64 `json:"goroutines"`
+	HeapInUseMB  float64 `json:"heap_inuse_mb"`
+	HeapReleasedMB float64 `json:"heap_released_mb"`
+	MemAllocMB   float64 `json:"mem_alloc_mb"`
 }
 
 type InfraMetrics struct {
 	DocDBCPUPct     float64 `json:"docdb_cpu_pct"`
 	DocDBConns      float64 `json:"docdb_conns"`
 	DocDBCursors    float64 `json:"docdb_cursors_timed_out"`
+	DocDBReadIOPS   float64 `json:"docdb_read_iops"`
+	DocDBWriteIOPS  float64 `json:"docdb_write_iops"`
 	RDSCPUPct       float64 `json:"rds_cpu_pct"`
 	RDSConns        float64 `json:"rds_conns"`
 	RDSFreeMemBytes float64 `json:"rds_free_mem_bytes"`
@@ -197,12 +212,14 @@ type AppSummary struct {
 }
 
 type InfraSummary struct {
-	DocDBCPUPct  MinMaxAvg `json:"docdb_cpu_pct"`
-	RDSCPUPct    MinMaxAvg `json:"rds_cpu_pct"`
-	RDSReadIOPS  MinMaxAvg `json:"rds_read_iops"`
-	RDSWriteIOPS MinMaxAvg `json:"rds_write_iops"`
-	ALBP99Ms     MinMaxAvg `json:"alb_p99_ms"`
-	ALB5XXTotal  float64   `json:"alb_5xx_total"`
+	DocDBCPUPct    MinMaxAvg `json:"docdb_cpu_pct"`
+	DocDBReadIOPS  MinMaxAvg `json:"docdb_read_iops"`
+	DocDBWriteIOPS MinMaxAvg `json:"docdb_write_iops"`
+	RDSCPUPct      MinMaxAvg `json:"rds_cpu_pct"`
+	RDSReadIOPS    MinMaxAvg `json:"rds_read_iops"`
+	RDSWriteIOPS   MinMaxAvg `json:"rds_write_iops"`
+	ALBP99Ms       MinMaxAvg `json:"alb_p99_ms"`
+	ALB5XXTotal    float64   `json:"alb_5xx_total"`
 }
 
 type K8sSummary struct {

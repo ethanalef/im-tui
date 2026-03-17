@@ -55,10 +55,12 @@ type aggregator struct {
 	sendRate    stat
 
 	// Infra metrics
-	docdbCPU     stat
-	rdsCPU       stat
-	rdsReadIOPS  stat
-	rdsWriteIOPS stat
+	docdbCPU       stat
+	docdbReadIOPS  stat
+	docdbWriteIOPS stat
+	rdsCPU         stat
+	rdsReadIOPS    stat
+	rdsWriteIOPS   stat
 	albP99       stat
 	alb5XXTotal  float64
 
@@ -85,6 +87,8 @@ func newAggregator() *aggregator {
 		msgs5Min:         newStat(),
 		sendRate:         newStat(),
 		docdbCPU:         newStat(),
+		docdbReadIOPS:    newStat(),
+		docdbWriteIOPS:   newStat(),
 		rdsCPU:           newStat(),
 		rdsReadIOPS:      newStat(),
 		rdsWriteIOPS:     newStat(),
@@ -107,6 +111,8 @@ func (a *aggregator) ingest(snap *SnapshotRecord) {
 
 	if snap.Infra != nil {
 		a.docdbCPU.add(snap.Infra.DocDBCPUPct)
+		a.docdbReadIOPS.add(snap.Infra.DocDBReadIOPS)
+		a.docdbWriteIOPS.add(snap.Infra.DocDBWriteIOPS)
 		a.rdsCPU.add(snap.Infra.RDSCPUPct)
 		a.rdsReadIOPS.add(snap.Infra.RDSReadIOPS)
 		a.rdsWriteIOPS.add(snap.Infra.RDSWriteIOPS)
@@ -160,10 +166,12 @@ func (a *aggregator) summary() SessionSummary {
 			SendRate:    a.sendRate.result(),
 		},
 		Infra: InfraSummary{
-			DocDBCPUPct:  a.docdbCPU.result(),
-			RDSCPUPct:    a.rdsCPU.result(),
-			RDSReadIOPS:  a.rdsReadIOPS.result(),
-			RDSWriteIOPS: a.rdsWriteIOPS.result(),
+			DocDBCPUPct:    a.docdbCPU.result(),
+			DocDBReadIOPS:  a.docdbReadIOPS.result(),
+			DocDBWriteIOPS: a.docdbWriteIOPS.result(),
+			RDSCPUPct:      a.rdsCPU.result(),
+			RDSReadIOPS:    a.rdsReadIOPS.result(),
+			RDSWriteIOPS:   a.rdsWriteIOPS.result(),
 			ALBP99Ms:     a.albP99.result(),
 			ALB5XXTotal:  a.alb5XXTotal,
 		},
