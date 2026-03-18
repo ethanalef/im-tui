@@ -176,13 +176,19 @@ type KubernetesSnapshot struct {
 }
 
 type PodInfo struct {
-	Name     string
-	Status   string
-	Ready    string
-	Restarts int
-	Age      string
-	CPUUsage string // from kubectl top
-	MemUsage string // from kubectl top
+	Name       string
+	Status     string
+	Ready      string
+	Restarts   int
+	Age        string
+	CPUUsage   string  // from kubectl top (e.g. "3m")
+	MemUsage   string  // from kubectl top (e.g. "256Mi")
+	CPURequest string  // from pod spec resources.requests.cpu
+	CPULimit   string  // from pod spec resources.limits.cpu
+	MemRequest string  // from pod spec resources.requests.memory
+	MemLimit   string  // from pod spec resources.limits.memory
+	CPUPercent float64 // usage/limit * 100 (0 if unknown)
+	MemPercent float64 // usage/limit * 100 (0 if unknown)
 }
 
 type HPAInfo struct {
@@ -200,6 +206,35 @@ type EventInfo struct {
 	Message   string
 	Age       string
 	Count     int
+}
+
+// InfraSpecs holds static infrastructure specifications fetched once at startup.
+type InfraSpecs struct {
+	DocDB DocDBSpec
+	RDS   RDSSpec
+	Redis []RedisNodeSpec
+}
+
+type DocDBSpec struct {
+	ShardCount    int32
+	ShardCapacity int32 // vCPUs per shard
+}
+
+type RDSSpec struct {
+	InstanceClass    string
+	Engine           string
+	EngineVersion    string
+	AllocatedStorage int32  // GiB
+	MaxStorage       int32  // GiB (0 = autoscaling disabled)
+	MultiAZ          bool
+	StorageType      string // gp3, io1, etc.
+}
+
+type RedisNodeSpec struct {
+	NodeID        string
+	NodeType      string
+	Engine        string
+	EngineVersion string
 }
 
 // LocustSnapshot holds Locust load test data.

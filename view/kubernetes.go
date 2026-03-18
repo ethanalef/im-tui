@@ -49,13 +49,17 @@ func renderPodTable(w, h int, pods []collector.PodInfo, scrollPos int) string {
 		return LabelStyle.Render("No pods found")
 	}
 
-	// Column widths
-	nameW := w - 55
+	// Column widths — dynamic based on terminal width
+	// Fixed cols: STATUS(8) READY(5) RESTARTS(8) AGE(5) = 26
+	// Resource cols: CPU(24) MEM(26) = 50
+	// Gaps ~14
+	fixedW := 26 + 50 + 14
+	nameW := w - fixedW
 	if nameW < 15 {
 		nameW = 15
 	}
 
-	header := fmt.Sprintf("%-*s %-8s %-5s %-8s %-5s %-10s %-10s",
+	header := fmt.Sprintf("%-*s %-8s %-5s %-8s %-5s %-24s %-26s",
 		nameW, "NAME", "STATUS", "READY", "RESTARTS", "AGE", "CPU", "MEMORY")
 	headerStyled := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render(header)
 
@@ -119,23 +123,17 @@ func renderPodTable(w, h int, pods []collector.PodInfo, scrollPos int) string {
 			statusColor = ColorSubtext
 		}
 
-		cpu := p.CPUUsage
-		if cpu == "" {
-			cpu = "─"
-		}
-		mem := p.MemUsage
-		if mem == "" {
-			mem = "─"
-		}
+		cpuCol := formatResourceBar(p.CPUUsage, p.CPULimit, p.CPUPercent, 24)
+		memCol := formatResourceBar(p.MemUsage, p.MemLimit, p.MemPercent, 26)
 
-		row := fmt.Sprintf("%-*s %s %-5s %s %-5s %-10s %-10s",
+		row := fmt.Sprintf("%-*s %s %-5s %s %-5s %s %s",
 			nameW, name,
 			lipgloss.NewStyle().Foreground(statusColor).Render(PadRight(p.Status, 8)),
 			p.Ready,
 			formatRestarts(p.Restarts),
 			p.Age,
-			cpu,
-			mem,
+			cpuCol,
+			memCol,
 		)
 		lines = append(lines, row)
 	}
@@ -146,6 +144,53 @@ func renderPodTable(w, h int, pods []collector.PodInfo, scrollPos int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// formatResourceBar renders "use/lim ████░░ XX%" with a colored mini bar.
+func formatResourceBar(usage, limit string, percent float64, colW int) string {
+	u := usage
+	if u == "" {
+		u = "─"
+	}
+	l := limit
+	if l == "" {
+		l = "─"
+	}
+
+	label := fmt.Sprintf("%s/%s", u, l)
+
+	// No bar if we can't compute percentage
+	if percent <= 0 && u == "─" {
+		return PadRight(label, colW)
+	}
+
+	// Mini progress bar (8 chars)
+	barW := 8
+	filled := int(percent / 100 * float64(barW))
+	if filled > barW {
+		filled = barW
+	}
+	if filled < 0 {
+		filled = 0
+	}
+
+	var barColor lipgloss.Color
+	switch {
+	case percent >= 80:
+		barColor = ColorRed
+	case percent >= 50:
+		barColor = ColorYellow
+	default:
+		barColor = ColorGreen
+	}
+
+	bar := lipgloss.NewStyle().Foreground(barColor).Render(strings.Repeat("█", filled)) +
+		lipgloss.NewStyle().Foreground(ColorBorder).Render(strings.Repeat("░", barW-filled))
+
+	pct := fmt.Sprintf("%4.0f%%", percent)
+	pctStyled := lipgloss.NewStyle().Foreground(barColor).Render(pct)
+
+	return fmt.Sprintf("%-10s %s%s", label, bar, pctStyled)
 }
 
 func renderHPATable(w, h int, hpas []collector.HPAInfo) string {

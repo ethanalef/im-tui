@@ -10,7 +10,7 @@ import (
 )
 
 // RenderInfrastructure renders Tab 3: CloudWatch infrastructure metrics.
-func RenderInfrastructure(width, height int, cw *collector.CloudWatchSnapshot, tsDocDBCPU, tsRdsCPU, tsAlbRT *collector.TimeSeries, scrollPos int) string {
+func RenderInfrastructure(width, height int, cw *collector.CloudWatchSnapshot, specs collector.InfraSpecs, tsDocDBCPU, tsRdsCPU, tsAlbRT *collector.TimeSeries, scrollPos int) string {
 	if width < 20 {
 		return "Terminal too narrow"
 	}
@@ -27,15 +27,15 @@ func RenderInfrastructure(width, height int, cw *collector.CloudWatchSnapshot, t
 	botH := height - 2 - topH
 
 	// Top-left: DocumentDB
-	docdbContent := renderDocDB(halfW-2, topH-2, cw.DocDB, tsDocDBCPU)
+	docdbContent := renderDocDB(halfW-2, topH-2, cw.DocDB, specs.DocDB, tsDocDBCPU)
 	docdbPanel := Panel("DocumentDB", docdbContent, halfW, topH)
 
 	// Top-right: RDS MySQL
-	rdsContent := renderRDS(halfW-2, topH-2, cw.RDS, tsRdsCPU)
+	rdsContent := renderRDS(halfW-2, topH-2, cw.RDS, specs.RDS, tsRdsCPU)
 	rdsPanel := Panel("RDS MySQL", rdsContent, halfW, topH)
 
 	// Bottom-left: ElastiCache Redis
-	redisContent := renderRedis(halfW-2, botH-2, cw.Redis)
+	redisContent := renderRedis(halfW-2, botH-2, cw.Redis, specs.Redis)
 	redisPanel := Panel("ElastiCache Redis", redisContent, halfW, botH)
 
 	// Bottom-right: ALB
@@ -48,7 +48,7 @@ func RenderInfrastructure(width, height int, cw *collector.CloudWatchSnapshot, t
 	return lipgloss.JoinVertical(lipgloss.Left, topRow, botRow)
 }
 
-func renderDocDB(w, h int, d collector.DocDBMetrics, ts *collector.TimeSeries) string {
+func renderDocDB(w, h int, d collector.DocDBMetrics, spec collector.DocDBSpec, ts *collector.TimeSeries) string {
 	barW := w - 20
 	if barW < 8 {
 		barW = 8
@@ -65,7 +65,11 @@ func renderDocDB(w, h int, d collector.DocDBMetrics, ts *collector.TimeSeries) s
 		connColor = ColorYellow
 	}
 
-	lines := []string{
+	var lines []string
+	if specLine := collector.FormatDocDBSpec(spec); specLine != "" {
+		lines = append(lines, lipgloss.NewStyle().Foreground(ColorSubtext).Render(specLine))
+	}
+	lines = append(lines,
 		ProgressBarLabeled("CPU   ", d.CPUPercent, barW, w),
 		"",
 		LabelStyle.Render("Connections: ") + lipgloss.NewStyle().Foreground(connColor).Bold(true).Render(fmt.Sprintf("%.0f", d.Connections)),
@@ -81,7 +85,7 @@ func renderDocDB(w, h int, d collector.DocDBMetrics, ts *collector.TimeSeries) s
 			lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("R:%.0f ", d.ReadIOPS)) +
 			lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("W:%.0f ", d.WriteIOPS)) +
 			LabelStyle.Render("Total: ") + ValueStyle.Render(fmt.Sprintf("%.0f", d.ReadIOPS+d.WriteIOPS)),
-	}
+	)
 
 	if ts != nil && ts.Len() > 0 {
 		lines = append(lines, "", LabelStyle.Render("CPU trend: ")+SparklineStr(ts.Values(), sparkW))
@@ -90,7 +94,7 @@ func renderDocDB(w, h int, d collector.DocDBMetrics, ts *collector.TimeSeries) s
 	return strings.Join(lines, "\n")
 }
 
-func renderRDS(w, h int, r collector.RDSMetrics, ts *collector.TimeSeries) string {
+func renderRDS(w, h int, r collector.RDSMetrics, spec collector.RDSSpec, ts *collector.TimeSeries) string {
 	barW := w - 20
 	if barW < 8 {
 		barW = 8
@@ -100,7 +104,11 @@ func renderRDS(w, h int, r collector.RDSMetrics, ts *collector.TimeSeries) strin
 		sparkW = 10
 	}
 
-	lines := []string{
+	var lines []string
+	if specLine := collector.FormatRDSSpec(spec); specLine != "" {
+		lines = append(lines, lipgloss.NewStyle().Foreground(ColorSubtext).Render(specLine))
+	}
+	lines = append(lines,
 		ProgressBarLabeled("CPU   ", r.CPUPercent, barW, w),
 		"",
 		LabelStyle.Render("Connections: ") + ValueStyle.Render(fmt.Sprintf("%.0f", r.Connections)),
@@ -114,7 +122,7 @@ func renderRDS(w, h int, r collector.RDSMetrics, ts *collector.TimeSeries) strin
 			lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("R:%.0f ", r.ReadIOPS)) +
 			lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("W:%.0f ", r.WriteIOPS)) +
 			LabelStyle.Render("Total: ") + ValueStyle.Render(fmt.Sprintf("%.0f", r.ReadIOPS+r.WriteIOPS)),
-	}
+	)
 
 	if ts != nil && ts.Len() > 0 {
 		lines = append(lines, "", LabelStyle.Render("CPU trend: ")+SparklineStr(ts.Values(), sparkW))
@@ -123,7 +131,7 @@ func renderRDS(w, h int, r collector.RDSMetrics, ts *collector.TimeSeries) strin
 	return strings.Join(lines, "\n")
 }
 
-func renderRedis(w, h int, nodes []collector.RedisNodeMetrics) string {
+func renderRedis(w, h int, nodes []collector.RedisNodeMetrics, nodeSpecs []collector.RedisNodeSpec) string {
 	if len(nodes) == 0 {
 		return LabelStyle.Render("No Redis nodes")
 	}
@@ -134,6 +142,11 @@ func renderRedis(w, h int, nodes []collector.RedisNodeMetrics) string {
 	}
 
 	var lines []string
+	if len(nodeSpecs) > 0 {
+		if specLine := collector.FormatRedisSpec(nodeSpecs[0]); specLine != "" {
+			lines = append(lines, lipgloss.NewStyle().Foreground(ColorSubtext).Render(specLine))
+		}
+	}
 	for i, n := range nodes {
 		shortName := n.NodeID
 		if len(shortName) > 20 {

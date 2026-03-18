@@ -18,6 +18,7 @@ bin/
 config.yaml
 config-uat.yaml
 config-prod.yaml
+config-preprod.yaml
 
 # Go
 vendor/

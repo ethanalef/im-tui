@@ -77,8 +77,10 @@ type MSKConsumerGroup struct {
 }
 
 type DocDBConfig struct {
-	ClusterID   string `yaml:"cluster_id"`
-	ClusterName string `yaml:"cluster_name"`
+	ClusterID     string `yaml:"cluster_id"`
+	ClusterName   string `yaml:"cluster_name"`
+	ShardCount    int32  `yaml:"shard_count"`
+	ShardCapacity int32  `yaml:"shard_capacity"` // vCPUs per shard
 }
 
 type RDSConfig struct {

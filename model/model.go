@@ -97,6 +97,9 @@ type Model struct {
 	LocustCollector *collector.LocustCollector
 	LogCollector    *collector.LogCollector
 
+	// Static infrastructure specs (fetched once at startup)
+	InfraSpecs collector.InfraSpecs
+
 	// Snapshots (latest data)
 	PromSnapshot   *collector.PrometheusSnapshot
 	CWSnapshot     *collector.CloudWatchSnapshot
@@ -163,6 +166,7 @@ func NewModel(envs []EnvBundle) Model {
 		EnvIndex: 0,
 
 		Config:          first.Config,
+		InfraSpecs:      first.InfraSpecs,
 		PromCollector:   first.PromCollector,
 		CWCollector:     first.CWCollector,
 		K8sCollector:    first.K8sCollector,
@@ -197,6 +201,7 @@ func (m Model) switchEnv(idx int) Model {
 	env := m.Envs[idx]
 	m.EnvIndex = idx
 	m.Config = env.Config
+	m.InfraSpecs = env.InfraSpecs
 	m.PromCollector = env.PromCollector
 	m.CWCollector = env.CWCollector
 	m.K8sCollector = env.K8sCollector

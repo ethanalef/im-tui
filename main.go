@@ -208,8 +208,22 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 		}
 	}
 
+	// Fetch static infrastructure specs (one-time at startup)
+	// DocDB specs from config (GetCluster API requires IAM perms we don't have)
+	fmt.Fprintf(os.Stderr, "Fetching infrastructure specs for %s...\n", cfg.Environment)
+	infraSpecs := collector.FetchInfraSpecs(
+		cfg.CloudWatch.Region,
+		cfg.AWS.RDS.InstanceID,
+		cfg.AWS.ElastiCache.Nodes,
+		collector.DocDBSpec{
+			ShardCount:    cfg.AWS.DocDB.ShardCount,
+			ShardCapacity: cfg.AWS.DocDB.ShardCapacity,
+		},
+	)
+
 	return model.EnvBundle{
 		Config:          mcfg,
+		InfraSpecs:      infraSpecs,
 		PromCollector:   promColl,
 		CWCollector:     cwColl,
 		K8sCollector:    k8sColl,
@@ -282,7 +296,7 @@ func (a appModel) View() string {
 			m.TSLongTimePush,
 			m.ScrollPos)
 	case model.TabInfra:
-		content = view.RenderInfrastructure(w, contentH, m.CWSnapshot, m.TSDocDBCPU, m.TSRdsCPU, m.TSAlbRT, m.ScrollPos)
+		content = view.RenderInfrastructure(w, contentH, m.CWSnapshot, m.InfraSpecs, m.TSDocDBCPU, m.TSRdsCPU, m.TSAlbRT, m.ScrollPos)
 	case model.TabKubernetes:
 		content = view.RenderKubernetes(w, contentH, m.K8sSnapshot, m.ScrollPos)
 	case model.TabLocust:

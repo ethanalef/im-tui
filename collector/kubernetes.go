@@ -32,12 +32,25 @@ func (k *KubernetesCollector) Collect() KubernetesSnapshot {
 	}
 	snap.Pods = pods
 
-	// Merge CPU/memory from kubectl top
+	// Merge CPU/memory from kubectl top and compute usage percentages
 	topMetrics := k.getTopPods()
 	for i, p := range snap.Pods {
 		if m, ok := topMetrics[p.Name]; ok {
 			snap.Pods[i].CPUUsage = m.cpu
 			snap.Pods[i].MemUsage = m.mem
+
+			// Compute usage/limit percentages
+			cpuUsageM := parseCPUMilli(m.cpu)
+			cpuLimitM := parseCPUMilli(p.CPULimit)
+			if cpuLimitM > 0 {
+				snap.Pods[i].CPUPercent = float64(cpuUsageM) / float64(cpuLimitM) * 100
+			}
+
+			memUsageMi := parseMemMi(m.mem)
+			memLimitMi := parseMemMi(p.MemLimit)
+			if memLimitMi > 0 {
+				snap.Pods[i].MemPercent = float64(memUsageMi) / float64(memLimitMi) * 100
+			}
 		}
 	}
 
@@ -80,6 +93,14 @@ func (k *KubernetesCollector) getPods() ([]PodInfo, error) {
 				Name              string    `json:"name"`
 				CreationTimestamp time.Time `json:"creationTimestamp"`
 			} `json:"metadata"`
+			Spec struct {
+				Containers []struct {
+					Resources struct {
+						Requests map[string]string `json:"requests"`
+						Limits   map[string]string `json:"limits"`
+					} `json:"resources"`
+				} `json:"containers"`
+			} `json:"spec"`
 			Status struct {
 				Phase             string `json:"phase"`
 				ContainerStatuses []struct {
@@ -108,12 +129,39 @@ func (k *KubernetesCollector) getPods() ([]PodInfo, error) {
 
 		age := formatAge(time.Since(item.Metadata.CreationTimestamp))
 
+		// Aggregate resource specs across all containers in the pod
+		var cpuReq, cpuLim, memReq, memLim string
+		if len(item.Spec.Containers) == 1 {
+			c := item.Spec.Containers[0]
+			cpuReq = c.Resources.Requests["cpu"]
+			cpuLim = c.Resources.Limits["cpu"]
+			memReq = c.Resources.Requests["memory"]
+			memLim = c.Resources.Limits["memory"]
+		} else {
+			// Multi-container: sum milliCPU and MiB across containers
+			var totalCPUReqM, totalCPULimM, totalMemReqM, totalMemLimM int64
+			for _, c := range item.Spec.Containers {
+				totalCPUReqM += parseCPUMilli(c.Resources.Requests["cpu"])
+				totalCPULimM += parseCPUMilli(c.Resources.Limits["cpu"])
+				totalMemReqM += parseMemMi(c.Resources.Requests["memory"])
+				totalMemLimM += parseMemMi(c.Resources.Limits["memory"])
+			}
+			cpuReq = formatCPUMilli(totalCPUReqM)
+			cpuLim = formatCPUMilli(totalCPULimM)
+			memReq = formatMemMi(totalMemReqM)
+			memLim = formatMemMi(totalMemLimM)
+		}
+
 		pods = append(pods, PodInfo{
-			Name:     item.Metadata.Name,
-			Status:   item.Status.Phase,
-			Ready:    fmt.Sprintf("%d/%d", ready, total),
-			Restarts: restarts,
-			Age:      age,
+			Name:       item.Metadata.Name,
+			Status:     item.Status.Phase,
+			Ready:      fmt.Sprintf("%d/%d", ready, total),
+			Restarts:   restarts,
+			Age:        age,
+			CPURequest: cpuReq,
+			CPULimit:   cpuLim,
+			MemRequest: memReq,
+			MemLimit:   memLim,
 		})
 	}
 	return pods, nil
@@ -253,6 +301,59 @@ func (k *KubernetesCollector) getEvents() ([]EventInfo, error) {
 func (k *KubernetesCollector) IsReachable() bool {
 	_, err := k.kubectl("get", "namespaces", "--no-headers", "-o", "name")
 	return err == nil
+}
+
+// parseCPUMilli parses a Kubernetes CPU quantity (e.g. "500m", "4", "4000m") into millicores.
+func parseCPUMilli(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	if strings.HasSuffix(s, "m") {
+		v, _ := strconv.ParseInt(strings.TrimSuffix(s, "m"), 10, 64)
+		return v
+	}
+	// Whole cores (e.g. "4" = 4000m)
+	v, _ := strconv.ParseInt(s, 10, 64)
+	return v * 1000
+}
+
+// parseMemMi parses a Kubernetes memory quantity into MiB.
+func parseMemMi(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	switch {
+	case strings.HasSuffix(s, "Gi"):
+		v, _ := strconv.ParseInt(strings.TrimSuffix(s, "Gi"), 10, 64)
+		return v * 1024
+	case strings.HasSuffix(s, "Mi"):
+		v, _ := strconv.ParseInt(strings.TrimSuffix(s, "Mi"), 10, 64)
+		return v
+	case strings.HasSuffix(s, "Ki"):
+		v, _ := strconv.ParseInt(strings.TrimSuffix(s, "Ki"), 10, 64)
+		return v / 1024
+	default:
+		// Plain bytes
+		v, _ := strconv.ParseInt(s, 10, 64)
+		return v / (1024 * 1024)
+	}
+}
+
+func formatCPUMilli(m int64) string {
+	if m == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%dm", m)
+}
+
+func formatMemMi(mi int64) string {
+	if mi == 0 {
+		return ""
+	}
+	if mi >= 1024 && mi%1024 == 0 {
+		return fmt.Sprintf("%dGi", mi/1024)
+	}
+	return fmt.Sprintf("%dMi", mi)
 }
 
 func formatAge(d time.Duration) string {

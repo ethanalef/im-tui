@@ -16,4 +16,5 @@ type EnvBundle struct {
 	LogCollector    *collector.LogCollector
 	Evaluator       *alert.Evaluator
 	Exporter        *export.Exporter
+	InfraSpecs      collector.InfraSpecs // static AWS specs fetched once at startup
 }
