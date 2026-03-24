@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"im-tui/alert"
@@ -710,6 +711,12 @@ func RenderSystemMap(
 		output = append(output, tier4...)
 	}
 
+	// Pipeline latency breakdown
+	if prom != nil && prom.Err == nil {
+		output = append(output, "")
+		output = append(output, renderPipelineBreakdown(width, prom, compact)...)
+	}
+
 	// Legend
 	output = append(output, "")
 	gd := lipgloss.NewStyle().Foreground(ColorGreen).Render("●")
@@ -732,6 +739,90 @@ func RenderSystemMap(
 
 	content := strings.Join(output, "\n")
 	return Panel("System Topology", content, width, height)
+}
+
+// renderPipelineBreakdown draws a horizontal per-stage latency flow at the bottom of the system map.
+func renderPipelineBreakdown(width int, prom *collector.PrometheusSnapshot, compact bool) []string {
+	lbl := lipgloss.NewStyle().Foreground(ColorSubtext).Render
+	arrow := lipgloss.NewStyle().Foreground(ColorBorder).Render(" ━▸ ")
+	hdr := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true)
+
+	// Format a latency value in ms with color coding
+	fmtMs := func(seconds float64) string {
+		if math.IsNaN(seconds) || seconds == 0 {
+			return lipgloss.NewStyle().Foreground(ColorBorder).Render("--")
+		}
+		ms := seconds * 1000
+		s := fmt.Sprintf("%.1fms", ms)
+		switch {
+		case seconds >= 5:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+		case seconds >= 1:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorOrange).Render(s)
+		case seconds >= 0.1:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+		default:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+		}
+	}
+
+	fmtCount := func(n float64) string {
+		if math.IsNaN(n) || n == 0 {
+			return lipgloss.NewStyle().Foreground(ColorBorder).Render("--")
+		}
+		s := fmt.Sprintf("%.0f", n)
+		switch {
+		case n >= 10000:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+		case n >= 1000:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+		default:
+			return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+		}
+	}
+
+	var lines []string
+
+	if compact {
+		// Compact: 2 rows
+		lines = append(lines,
+			" "+hdr.Render("Pipeline P95")+": "+
+				lbl("Kafka ")+fmtMs(prom.KafkaProduceP95)+arrow+
+				lbl("Batch ")+fmtMs(prom.TransferBatchP95)+arrow+
+				lbl("Push ")+fmtMs(prom.PushProcessingP95)+arrow+
+				lbl("Encode ")+fmtMs(prom.GatewayEncodeP95))
+		lines = append(lines,
+			"              "+
+				lbl("Redis ")+fmtMs(prom.TransferRedisCacheP95)+"  "+
+				lbl("Mongo ")+fmtMs(prom.TransferMongoWriteP95)+"  "+
+				lbl("gRPC ")+fmtMs(prom.PushGrpcDeliveryP95)+"  "+
+				lbl("E2E-s ")+fmtMs(prom.E2EDeliverySingleP95)+"  "+
+				lbl("E2E-g ")+fmtMs(prom.E2EDeliveryGroupP95))
+	} else {
+		// Wide: 3 rows for clarity
+		lines = append(lines,
+			" "+hdr.Render("Pipeline P95")+":  "+
+				lbl("Kafka ")+fmtMs(prom.KafkaProduceP95)+arrow+
+				lbl("Transfer ")+fmtMs(prom.TransferBatchP95)+arrow+
+				lbl("Push ")+fmtMs(prom.PushProcessingP95)+arrow+
+				lbl("BatchPush ")+fmtMs(prom.GatewayBatchPushP95)+arrow+
+				lbl("Encode ")+fmtMs(prom.GatewayEncodeP95))
+		lines = append(lines,
+			"               "+
+				lbl("              ")+
+				lbl("Redis ")+fmtMs(prom.TransferRedisCacheP95)+"  "+
+				lbl("Mongo ")+fmtMs(prom.TransferMongoWriteP95)+"    "+
+				lbl("gRPC ")+fmtMs(prom.PushGrpcDeliveryP95)+"  "+
+				lbl("Members ")+fmtCount(prom.PushGroupMemberP95)+"  "+
+				lbl("WS ")+wsQueueValue(prom.GatewayWsQueueP95))
+		lines = append(lines,
+			"  "+lbl("E2E Delivery P95:")+
+				"  "+lbl("single ")+fmtMs(prom.E2EDeliverySingleP95)+
+				"  "+lbl("group ")+fmtMs(prom.E2EDeliveryGroupP95)+
+				"  "+lbl("batch size ")+fmtCount(prom.GatewayBatchPushSizeP95))
+	}
+
+	return lines
 }
 
 func fmtLag(n float64) string {
