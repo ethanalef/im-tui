@@ -25,6 +25,7 @@ func RenderApplication(
 	tsGatewaySend *collector.TimeSeries,
 	tsKafkaLag, tsMsgLagGrowth *collector.TimeSeries,
 	tsLongTimePush *collector.TimeSeries,
+	tsE2EGroupP95, tsGatewayEncodeP95, tsTransferBatchP95 *collector.TimeSeries,
 	scrollPos int,
 ) string {
 	if prom == nil || prom.Err != nil {
@@ -40,30 +41,35 @@ func RenderApplication(
 		return placeholder
 	}
 
-	// Layout proportions: top ~25%, mid-top ~20%, mid-bot ~20%, bottom ~35%
-	topHeight := height * 25 / 100
+	// Layout proportions: top ~20%, pipeline ~15%, mid-top ~15%, mid-bot ~20%, bottom ~30%
+	topHeight := height * 20 / 100
 	if topHeight < 7 {
 		topHeight = 7
 	}
-	midTopHeight := height * 20 / 100
-	if midTopHeight < 6 {
-		midTopHeight = 6
+	pipelineHeight := height * 15 / 100
+	if pipelineHeight < 5 {
+		pipelineHeight = 5
+	}
+	midTopHeight := height * 15 / 100
+	if midTopHeight < 5 {
+		midTopHeight = 5
 	}
 	midBotHeight := height * 20 / 100
 	if midBotHeight < 6 {
 		midBotHeight = 6
 	}
-	botHeight := height - topHeight - midTopHeight - midBotHeight
+	botHeight := height - topHeight - pipelineHeight - midTopHeight - midBotHeight
 	if botHeight < 5 {
 		botHeight = 5
 	}
 
 	topPanel := renderSparklinePanel(width, topHeight, prom, tsOnline, tsMsgs, tsSendRate, tsGatewaySend)
+	pipelinePanel := renderPipelineLatency(width, pipelineHeight, prom, tsE2EGroupP95, tsGatewayEncodeP95, tsTransferBatchP95)
 	midTopPanel := renderMessageCounters(width, midTopHeight, prom)
 	midBotPanel := renderStoragePipeline(width, midBotHeight, prom, cw, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush)
 	botPanel := renderPodMetricsTable(width, botHeight, prom.PodMetrics, scrollPos)
 
-	return lipgloss.JoinVertical(lipgloss.Left, topPanel, midTopPanel, midBotPanel, botPanel)
+	return lipgloss.JoinVertical(lipgloss.Left, topPanel, pipelinePanel, midTopPanel, midBotPanel, botPanel)
 }
 
 // renderSparklinePanel draws sparkline rows inside a single panel.
@@ -105,6 +111,111 @@ func renderSparklinePanel(width, height int, prom *collector.PrometheusSnapshot,
 
 	content := strings.Join(lines, "\n")
 	return Panel("Metrics", content, width, height)
+}
+
+// renderPipelineLatency draws the per-stage P95 latency breakdown panel.
+// Shows end-to-end delivery, per-stage latencies, and group fan-out metrics.
+// Gracefully renders "--" for metrics not yet available (old fork deployment).
+func renderPipelineLatency(width, height int, prom *collector.PrometheusSnapshot, tsE2EGroup, tsGwEncode, tsTransferBatch *collector.TimeSeries) string {
+	innerW := width - 4
+
+	halfW := innerW / 2
+	if halfW < 20 {
+		halfW = 20
+	}
+
+	// Left column: E2E delivery + sparklines for key latencies
+	labelW := 18
+	valueW := 12
+	sparkW := halfW - labelW - valueW - 4
+	if sparkW < 8 {
+		sparkW = 8
+	}
+
+	type sparkRow struct {
+		label string
+		ts    *collector.TimeSeries
+		val   float64
+	}
+	sparkRows := []sparkRow{
+		{"E2E Group P95", tsE2EGroup, prom.E2EDeliveryGroupP95},
+		{"GW Encode P95", tsGwEncode, prom.GatewayEncodeP95},
+		{"Transfer Batch", tsTransferBatch, prom.TransferBatchP95},
+	}
+
+	var leftLines []string
+	for _, r := range sparkRows {
+		label := LabelStyle.Render(PadRight(r.label, labelW))
+		spark := SparklineStr(r.ts.Values(), sparkW)
+		value := pipelineLatencyValue(r.val)
+		leftLines = append(leftLines, label+spark+" "+PadRight(value, valueW))
+	}
+
+	// Right column: all stage P95 latencies in compact form
+	rightLines := []string{
+		LabelStyle.Render("Kafka Produce  ") + pipelineLatencyValue(prom.KafkaProduceP95) +
+			LabelStyle.Render("  Redis Cache  ") + pipelineLatencyValue(prom.TransferRedisCacheP95),
+		LabelStyle.Render("Mongo Write    ") + pipelineLatencyValue(prom.TransferMongoWriteP95) +
+			LabelStyle.Render("  Batch Push   ") + pipelineLatencyValue(prom.GatewayBatchPushP95),
+		LabelStyle.Render("E2E Single P95 ") + pipelineLatencyValue(prom.E2EDeliverySingleP95) +
+			LabelStyle.Render("  Group Size   ") + groupSizeValue(prom.PushGroupMemberP95) +
+			LabelStyle.Render("  Batch Size   ") + groupSizeValue(prom.GatewayBatchPushSizeP95),
+	}
+
+	var lines []string
+	maxRows := len(leftLines)
+	if len(rightLines) > maxRows {
+		maxRows = len(rightLines)
+	}
+	for i := 0; i < maxRows; i++ {
+		left := ""
+		if i < len(leftLines) {
+			left = leftLines[i]
+		}
+		right := ""
+		if i < len(rightLines) {
+			right = rightLines[i]
+		}
+		lines = append(lines, PadRight(left, halfW)+right)
+	}
+
+	content := strings.Join(lines, "\n")
+	return Panel("Pipeline Latency (P95)", content, width, height)
+}
+
+// pipelineLatencyValue renders a pipeline stage P95 latency with color coding.
+// NaN means no observations (metric not deployed or idle).
+func pipelineLatencyValue(seconds float64) string {
+	if math.IsNaN(seconds) || seconds == 0 {
+		return lipgloss.NewStyle().Foreground(ColorSubtext).Render("--")
+	}
+	s := FormatLatency(seconds)
+	switch {
+	case seconds >= 5:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	case seconds >= 1:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorOrange).Render(s)
+	case seconds >= 0.1:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	default:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+	}
+}
+
+// groupSizeValue renders a group member count / batch size with color coding.
+func groupSizeValue(count float64) string {
+	if math.IsNaN(count) || count == 0 {
+		return lipgloss.NewStyle().Foreground(ColorSubtext).Render("--")
+	}
+	s := FormatNum(count)
+	switch {
+	case count >= 10000:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	case count >= 1000:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	default:
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+	}
 }
 
 // renderMessageCounters draws the message success/fail counters as a two-column layout.

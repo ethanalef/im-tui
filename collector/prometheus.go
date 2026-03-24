@@ -76,6 +76,17 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		{"push_processing_p95", `histogram_quantile(0.95, sum(rate(push_msg_processing_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
 		{"push_grpc_p95", `histogram_quantile(0.95, sum(rate(push_grpc_delivery_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
 		{"gw_ws_queue_p95", `histogram_quantile(0.95, sum(rate(gateway_ws_write_queue_len_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		// Pipeline latency histograms (upgrade version only — gracefully ignored if metrics absent)
+		{"kafka_produce_p95", `histogram_quantile(0.95, sum(rate(kafka_produce_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"transfer_batch_p95", `histogram_quantile(0.95, sum(rate(msg_transfer_batch_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"transfer_redis_p95", `histogram_quantile(0.95, sum(rate(msg_transfer_redis_cache_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"transfer_mongo_p95", `histogram_quantile(0.95, sum(rate(msg_transfer_mongo_write_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"push_group_size_p95", `histogram_quantile(0.95, sum(rate(push_group_member_count_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"gw_encode_p95", `histogram_quantile(0.95, sum(rate(gateway_msg_encode_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"e2e_group_p95", `histogram_quantile(0.95, sum(rate(message_e2e_delivery_seconds_bucket{namespace="` + ns + `",session_type="group"}[1m])) by (le))`},
+		{"e2e_single_p95", `histogram_quantile(0.95, sum(rate(message_e2e_delivery_seconds_bucket{namespace="` + ns + `",session_type="single"}[1m])) by (le))`},
+		{"gw_batch_push_p95", `histogram_quantile(0.95, sum(rate(gateway_batch_push_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"gw_batch_push_size_p95", `histogram_quantile(0.95, sum(rate(gateway_batch_push_user_count_bucket{namespace="` + ns + `"}[1m])) by (le))`},
 	}
 
 	for _, q := range queries {
@@ -134,6 +145,26 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 			snap.PushGrpcDeliveryP95 = val
 		case "gw_ws_queue_p95":
 			snap.GatewayWsQueueP95 = val
+		case "kafka_produce_p95":
+			snap.KafkaProduceP95 = val
+		case "transfer_batch_p95":
+			snap.TransferBatchP95 = val
+		case "transfer_redis_p95":
+			snap.TransferRedisCacheP95 = val
+		case "transfer_mongo_p95":
+			snap.TransferMongoWriteP95 = val
+		case "push_group_size_p95":
+			snap.PushGroupMemberP95 = val
+		case "gw_encode_p95":
+			snap.GatewayEncodeP95 = val
+		case "e2e_group_p95":
+			snap.E2EDeliveryGroupP95 = val
+		case "e2e_single_p95":
+			snap.E2EDeliverySingleP95 = val
+		case "gw_batch_push_p95":
+			snap.GatewayBatchPushP95 = val
+		case "gw_batch_push_size_p95":
+			snap.GatewayBatchPushSizeP95 = val
 		}
 	}
 

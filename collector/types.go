@@ -86,6 +86,18 @@ type PrometheusSnapshot struct {
 	PushGrpcDeliveryP95 float64 // p95 of push_grpc_delivery_duration_seconds (seconds)
 	GatewayWsQueueP95   float64 // p95 of gateway_ws_write_queue_len (queue depth)
 
+	// Pipeline latency histograms (NEW — requires upgrade version deployed)
+	KafkaProduceP95       float64 // p95 of kafka_produce_duration_seconds (seconds)
+	TransferBatchP95      float64 // p95 of msg_transfer_batch_duration_seconds (seconds)
+	TransferRedisCacheP95 float64 // p95 of msg_transfer_redis_cache_duration_seconds (seconds)
+	TransferMongoWriteP95 float64 // p95 of msg_transfer_mongo_write_duration_seconds (seconds)
+	PushGroupMemberP95    float64 // p95 of push_group_member_count (member count)
+	GatewayEncodeP95      float64 // p95 of gateway_msg_encode_duration_seconds (seconds)
+	E2EDeliveryGroupP95   float64 // p95 of message_e2e_delivery_seconds{session_type="group"} (seconds)
+	E2EDeliverySingleP95  float64 // p95 of message_e2e_delivery_seconds{session_type="single"} (seconds)
+	GatewayBatchPushP95   float64 // p95 of gateway_batch_push_duration_seconds (seconds)
+	GatewayBatchPushSizeP95 float64 // p95 of gateway_batch_push_user_count (user count)
+
 	// msg-transfer health: production vs consumption rate delta
 	// Positive = lag growing, negative = catching up, zero = keeping pace
 	MsgLagGrowthRate float64

@@ -114,6 +114,18 @@ type AppMetrics struct {
 	PushGrpcDeliveryP95 float64 `json:"push_grpc_delivery_p95_s"`
 	GatewayWsQueueP95   float64 `json:"gateway_ws_queue_p95"`
 
+	// Pipeline latency P95 (upgrade version metrics)
+	KafkaProduceP95       float64 `json:"kafka_produce_p95_s,omitempty"`
+	TransferBatchP95      float64 `json:"transfer_batch_p95_s,omitempty"`
+	TransferRedisCacheP95 float64 `json:"transfer_redis_cache_p95_s,omitempty"`
+	TransferMongoWriteP95 float64 `json:"transfer_mongo_write_p95_s,omitempty"`
+	PushGroupMemberP95    float64 `json:"push_group_member_p95,omitempty"`
+	GatewayEncodeP95      float64 `json:"gateway_encode_p95_s,omitempty"`
+	E2EDeliveryGroupP95   float64 `json:"e2e_delivery_group_p95_s,omitempty"`
+	E2EDeliverySingleP95  float64 `json:"e2e_delivery_single_p95_s,omitempty"`
+	GatewayBatchPushP95   float64 `json:"gateway_batch_push_p95_s,omitempty"`
+	GatewayBatchPushSizeP95 float64 `json:"gateway_batch_push_size_p95,omitempty"`
+
 	// Gateway dead connection health (per gateway pod)
 	GatewayHealth []GatewayHealthRecord `json:"gateway_health,omitempty"`
 }

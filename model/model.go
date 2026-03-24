@@ -138,6 +138,21 @@ type Model struct {
 	TSKafkaLag        *collector.TimeSeries // CloudWatch MSK total SumOffsetLag
 	TSMsgLagGrowth    *collector.TimeSeries // Prometheus production-consumption rate delta
 
+	// Pipeline latency sparklines (upgrade version metrics)
+	TSE2EGroupP95     *collector.TimeSeries // message_e2e_delivery_seconds{group} P95
+	TSGatewayEncodeP95 *collector.TimeSeries // gateway_msg_encode_duration_seconds P95
+	TSTransferBatchP95 *collector.TimeSeries // msg_transfer_batch_duration_seconds P95
+
+	// Infrastructure spike detection time series
+	TSDocDBReadIOPS   *collector.TimeSeries
+	TSDocDBWriteIOPS  *collector.TimeSeries
+	TSRdsReadIOPS     *collector.TimeSeries
+	TSRdsWriteIOPS    *collector.TimeSeries
+	TSRdsDiskQueue    *collector.TimeSeries
+	TSRedisCPU        *collector.TimeSeries // max across nodes
+	TSRedisMemory     *collector.TimeSeries // max across nodes
+	TSRedisEvictions  *collector.TimeSeries // sum across nodes
+
 	// Alerts
 	Evaluator *alert.Evaluator
 
@@ -193,6 +208,19 @@ func NewModel(envs []EnvBundle) Model {
 		TSPushInFlight:    collector.NewTimeSeries(cap),
 		TSKafkaLag:        collector.NewTimeSeries(cap),
 		TSMsgLagGrowth:    collector.NewTimeSeries(cap),
+
+		TSE2EGroupP95:      collector.NewTimeSeries(cap),
+		TSGatewayEncodeP95: collector.NewTimeSeries(cap),
+		TSTransferBatchP95: collector.NewTimeSeries(cap),
+
+		TSDocDBReadIOPS:  collector.NewTimeSeries(cap),
+		TSDocDBWriteIOPS: collector.NewTimeSeries(cap),
+		TSRdsReadIOPS:    collector.NewTimeSeries(cap),
+		TSRdsWriteIOPS:   collector.NewTimeSeries(cap),
+		TSRdsDiskQueue:   collector.NewTimeSeries(cap),
+		TSRedisCPU:       collector.NewTimeSeries(cap),
+		TSRedisMemory:    collector.NewTimeSeries(cap),
+		TSRedisEvictions: collector.NewTimeSeries(cap),
 	}
 }
 
@@ -246,6 +274,19 @@ func (m Model) switchEnv(idx int) Model {
 	m.TSKafkaLag = collector.NewTimeSeries(cap)
 	m.TSMsgLagGrowth = collector.NewTimeSeries(cap)
 
+	m.TSE2EGroupP95 = collector.NewTimeSeries(cap)
+	m.TSGatewayEncodeP95 = collector.NewTimeSeries(cap)
+	m.TSTransferBatchP95 = collector.NewTimeSeries(cap)
+
+	m.TSDocDBReadIOPS = collector.NewTimeSeries(cap)
+	m.TSDocDBWriteIOPS = collector.NewTimeSeries(cap)
+	m.TSRdsReadIOPS = collector.NewTimeSeries(cap)
+	m.TSRdsWriteIOPS = collector.NewTimeSeries(cap)
+	m.TSRdsDiskQueue = collector.NewTimeSeries(cap)
+	m.TSRedisCPU = collector.NewTimeSeries(cap)
+	m.TSRedisMemory = collector.NewTimeSeries(cap)
+	m.TSRedisEvictions = collector.NewTimeSeries(cap)
+
 	// Reset scroll
 	m.ScrollPos = 0
 	m.ScrollXPos = 0
@@ -297,6 +338,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.TSLongTimePush.Push(snap.LongTimePush)
 			m.TSPushInFlight.Push(snap.PushMsgInFlight)
 			m.TSMsgLagGrowth.Push(snap.MsgLagGrowthRate)
+			m.TSE2EGroupP95.Push(snap.E2EDeliveryGroupP95)
+			m.TSGatewayEncodeP95.Push(snap.GatewayEncodeP95)
+			m.TSTransferBatchP95.Push(snap.TransferBatchP95)
 		}
 		m.LastUpdated = time.Now()
 		m.Exporter.OnUpdate(m.exportSnapshot())
@@ -314,6 +358,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.TSRdsCPU.Push(snap.RDS.CPUPercent)
 			m.TSAlbRT.Push(snap.ALB.ResponseTimeP99 * 1000)
 			m.TSKafkaLag.Push(snap.MSK.TotalLag)
+
+			// Infrastructure spike detection series
+			m.TSDocDBReadIOPS.Push(snap.DocDB.ReadIOPS)
+			m.TSDocDBWriteIOPS.Push(snap.DocDB.WriteIOPS)
+			m.TSRdsReadIOPS.Push(snap.RDS.ReadIOPS)
+			m.TSRdsWriteIOPS.Push(snap.RDS.WriteIOPS)
+			m.TSRdsDiskQueue.Push(snap.RDS.DiskQueue)
+
+			// Redis: max CPU/memory, sum evictions across nodes
+			var maxCPU, maxMem, sumEvict float64
+			for _, r := range snap.Redis {
+				if r.CPUPercent > maxCPU {
+					maxCPU = r.CPUPercent
+				}
+				if r.MemoryPercent > maxMem {
+					maxMem = r.MemoryPercent
+				}
+				sumEvict += r.Evictions
+			}
+			m.TSRedisCPU.Push(maxCPU)
+			m.TSRedisMemory.Push(maxMem)
+			m.TSRedisEvictions.Push(sumEvict)
 		}
 		m.LastUpdated = time.Now()
 		m.Exporter.OnUpdate(m.exportSnapshot())
@@ -493,6 +559,17 @@ func (m Model) exportSnapshot() export.SnapshotRecord {
 			PushProcessingP95:   p.PushProcessingP95,
 			PushGrpcDeliveryP95: p.PushGrpcDeliveryP95,
 			GatewayWsQueueP95:   p.GatewayWsQueueP95,
+
+			KafkaProduceP95:       p.KafkaProduceP95,
+			TransferBatchP95:      p.TransferBatchP95,
+			TransferRedisCacheP95: p.TransferRedisCacheP95,
+			TransferMongoWriteP95: p.TransferMongoWriteP95,
+			PushGroupMemberP95:    p.PushGroupMemberP95,
+			GatewayEncodeP95:      p.GatewayEncodeP95,
+			E2EDeliveryGroupP95:   p.E2EDeliveryGroupP95,
+			E2EDeliverySingleP95:  p.E2EDeliverySingleP95,
+			GatewayBatchPushP95:   p.GatewayBatchPushP95,
+			GatewayBatchPushSizeP95: p.GatewayBatchPushSizeP95,
 		}
 		// Export per-gateway-pod health for dead connection leak analysis
 		for _, pm := range p.PodMetrics {
@@ -679,8 +756,23 @@ func (m Model) evalAlerts() tea.Cmd {
 	cw := m.CWSnapshot
 	k8s := m.K8sSnapshot
 	locust := m.LocustSnapshot
+
+	// Build spike detection inputs from infrastructure time series
+	spikes := []alert.SpikeInput{
+		{Name: "DocDB CPU", Values: m.TSDocDBCPU.Values()},
+		{Name: "DocDB ReadIOPS", Values: m.TSDocDBReadIOPS.Values()},
+		{Name: "DocDB WriteIOPS", Values: m.TSDocDBWriteIOPS.Values()},
+		{Name: "RDS CPU", Values: m.TSRdsCPU.Values()},
+		{Name: "RDS ReadIOPS", Values: m.TSRdsReadIOPS.Values()},
+		{Name: "RDS WriteIOPS", Values: m.TSRdsWriteIOPS.Values()},
+		{Name: "RDS DiskQueue", Values: m.TSRdsDiskQueue.Values()},
+		{Name: "Redis CPU", Values: m.TSRedisCPU.Values()},
+		{Name: "Redis Memory", Values: m.TSRedisMemory.Values()},
+		{Name: "Redis Evictions", Values: m.TSRedisEvictions.Values()},
+	}
+
 	return func() tea.Msg {
-		alerts := ev.Evaluate(prom, cw, k8s, locust)
+		alerts := ev.Evaluate(prom, cw, k8s, locust, spikes)
 		var out []Alert
 		for _, a := range alerts {
 			out = append(out, Alert{

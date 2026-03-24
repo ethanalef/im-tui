@@ -142,7 +142,7 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 		cwColl = nil
 	}
 
-	k8sColl := collector.NewKubernetesCollector(expandHome(cfg.Kubeconfig), cfg.Namespace)
+	k8sColl := collector.NewKubernetesCollector(expandHome(cfg.Kubeconfig), cfg.Namespace, cfg.Kubernetes.IgnorePrefixes)
 	locustColl := collector.NewLocustCollector(cfg.Locust.URL)
 	logColl := collector.NewLogCollector(expandHome(cfg.Kubeconfig), cfg.Namespace, cfg.Logs.Services, cfg.Logs.SinceSec)
 
@@ -166,6 +166,8 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 		GoroutineCrit:    cfg.Thresholds.GoroutineCrit,
 		KafkaLagWarn:     cfg.Thresholds.KafkaLagWarn,
 		KafkaLagCrit:     cfg.Thresholds.KafkaLagCrit,
+		SpikeRisePct:    cfg.Thresholds.SpikeRisePct,
+		SpikeMinSamples: cfg.Thresholds.SpikeMinSamples,
 	})
 
 	var exporter *export.Exporter
@@ -294,6 +296,7 @@ func (a appModel) View() string {
 			m.TSGatewaySendRate,
 			m.TSKafkaLag, m.TSMsgLagGrowth,
 			m.TSLongTimePush,
+			m.TSE2EGroupP95, m.TSGatewayEncodeP95, m.TSTransferBatchP95,
 			m.ScrollPos)
 	case model.TabInfra:
 		content = view.RenderInfrastructure(w, contentH, m.CWSnapshot, m.InfraSpecs, m.TSDocDBCPU, m.TSRdsCPU, m.TSAlbRT, m.ScrollPos)
