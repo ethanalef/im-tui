@@ -166,8 +166,16 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 		GoroutineCrit:    cfg.Thresholds.GoroutineCrit,
 		KafkaLagWarn:     cfg.Thresholds.KafkaLagWarn,
 		KafkaLagCrit:     cfg.Thresholds.KafkaLagCrit,
-		SpikeRisePct:    cfg.Thresholds.SpikeRisePct,
-		SpikeMinSamples: cfg.Thresholds.SpikeMinSamples,
+		E2EGroupWarnS:      cfg.Thresholds.E2EGroupWarnS,
+		E2EGroupCritS:      cfg.Thresholds.E2EGroupCritS,
+		E2ESingleWarnS:     cfg.Thresholds.E2ESingleWarnS,
+		E2ESingleCritS:     cfg.Thresholds.E2ESingleCritS,
+		GatewayEncodeWarnS: cfg.Thresholds.GatewayEncodeWarnS,
+		GatewayEncodeCritS: cfg.Thresholds.GatewayEncodeCritS,
+		TransferBatchWarnS: cfg.Thresholds.TransferBatchWarnS,
+		TransferBatchCritS: cfg.Thresholds.TransferBatchCritS,
+		SpikeRisePct:       cfg.Thresholds.SpikeRisePct,
+		SpikeMinSamples:    cfg.Thresholds.SpikeMinSamples,
 	})
 
 	var exporter *export.Exporter

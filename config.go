@@ -49,7 +49,8 @@ type CloudWatchConfig struct {
 }
 
 type KubernetesConfig struct {
-	Interval time.Duration `yaml:"interval"`
+	Interval       time.Duration `yaml:"interval"`
+	IgnorePrefixes []string      `yaml:"ignore_prefixes"`
 }
 
 type LocustConfig struct {
@@ -125,6 +126,20 @@ type ThresholdConfig struct {
 	// Kafka consumer lag
 	KafkaLagWarn float64 `yaml:"kafka_lag_warn"`
 	KafkaLagCrit float64 `yaml:"kafka_lag_crit"`
+
+	// Pipeline latency P95 thresholds (upgrade version metrics)
+	E2EGroupWarnS       float64 `yaml:"e2e_group_warn_s"`        // group delivery P95 warning (seconds)
+	E2EGroupCritS       float64 `yaml:"e2e_group_crit_s"`        // group delivery P95 critical (seconds)
+	E2ESingleWarnS      float64 `yaml:"e2e_single_warn_s"`       // single delivery P95 warning (seconds)
+	E2ESingleCritS      float64 `yaml:"e2e_single_crit_s"`       // single delivery P95 critical (seconds)
+	GatewayEncodeWarnS  float64 `yaml:"gw_encode_warn_s"`        // per-msg encode P95 warning (seconds)
+	GatewayEncodeCritS  float64 `yaml:"gw_encode_crit_s"`        // per-msg encode P95 critical (seconds)
+	TransferBatchWarnS  float64 `yaml:"transfer_batch_warn_s"`   // msg-transfer batch P95 warning (seconds)
+	TransferBatchCritS  float64 `yaml:"transfer_batch_crit_s"`   // msg-transfer batch P95 critical (seconds)
+
+	// Spike detection — alerts on sudden rapid rises
+	SpikeRisePct    float64 `yaml:"spike_rise_pct"`     // % increase over baseline → warning (2x → critical, 0 = disabled)
+	SpikeMinSamples int     `yaml:"spike_min_samples"`  // min data points before detection activates
 }
 
 func LoadConfig(path string) (*Config, error) {

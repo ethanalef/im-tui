@@ -45,6 +45,26 @@ type Thresholds struct {
 	GoroutineCrit    float64
 	KafkaLagWarn     float64
 	KafkaLagCrit     float64
+
+	// Pipeline latency P95 thresholds (upgrade version metrics)
+	E2EGroupWarnS      float64
+	E2EGroupCritS      float64
+	E2ESingleWarnS     float64
+	E2ESingleCritS     float64
+	GatewayEncodeWarnS float64
+	GatewayEncodeCritS float64
+	TransferBatchWarnS float64
+	TransferBatchCritS float64
+
+	// Spike detection
+	SpikeRisePct    float64 // % increase over baseline → warning (2x → critical)
+	SpikeMinSamples int     // min data points before detection activates
+}
+
+// SpikeInput provides a named time series for spike detection.
+type SpikeInput struct {
+	Name   string
+	Values []float64 // chronological, latest last
 }
 
 type Evaluator struct {
@@ -63,6 +83,7 @@ func (e *Evaluator) Evaluate(
 	cw *collector.CloudWatchSnapshot,
 	k8s *collector.KubernetesSnapshot,
 	locust *collector.LocustSnapshot,
+	spikes []SpikeInput,
 ) []Alert {
 	var alerts []Alert
 	now := time.Now()
@@ -265,6 +286,34 @@ func (e *Evaluator) Evaluate(
 		}
 	}
 
+	// Pipeline latency P95 alerts (upgrade version metrics — skip if NaN/0)
+	if prom != nil && prom.Err == nil {
+		type latencyCheck struct {
+			name     string
+			value    float64
+			warn, crit float64
+		}
+		for _, lc := range []latencyCheck{
+			{"E2E Group Delivery", prom.E2EDeliveryGroupP95, e.thresholds.E2EGroupWarnS, e.thresholds.E2EGroupCritS},
+			{"E2E Single Delivery", prom.E2EDeliverySingleP95, e.thresholds.E2ESingleWarnS, e.thresholds.E2ESingleCritS},
+			{"GW Encode P95", prom.GatewayEncodeP95, e.thresholds.GatewayEncodeWarnS, e.thresholds.GatewayEncodeCritS},
+			{"Transfer Batch P95", prom.TransferBatchP95, e.thresholds.TransferBatchWarnS, e.thresholds.TransferBatchCritS},
+		} {
+			if lc.value == 0 || lc.value != lc.value { // skip 0 or NaN
+				continue
+			}
+			ms := lc.value * 1000
+			if lc.crit > 0 && lc.value >= lc.crit {
+				alerts = append(alerts, Alert{LevelCritical, lc.name, fmt.Sprintf("%.0fms", ms), "Pipeline latency critical", now})
+			} else if lc.warn > 0 && lc.value >= lc.warn {
+				alerts = append(alerts, Alert{LevelWarning, lc.name, fmt.Sprintf("%.0fms", ms), "Pipeline latency elevated", now})
+			}
+		}
+	}
+
+	// Spike detection: sudden rapid rises in infrastructure metrics
+	alerts = append(alerts, e.detectSpikes(spikes, now)...)
+
 	// Update active/history under lock
 	e.mu.Lock()
 	e.active = alerts
@@ -277,6 +326,59 @@ func (e *Evaluator) Evaluate(
 	}
 	e.mu.Unlock()
 
+	return alerts
+}
+
+// detectSpikes checks each SpikeInput for sudden rapid rises.
+// Compares the latest value against the mean of all prior values (baseline).
+// Warning at SpikeRisePct increase, Critical at 2x SpikeRisePct.
+func (e *Evaluator) detectSpikes(inputs []SpikeInput, now time.Time) []Alert {
+	pct := e.thresholds.SpikeRisePct
+	if pct <= 0 {
+		return nil
+	}
+	minSamples := e.thresholds.SpikeMinSamples
+	if minSamples < 2 {
+		minSamples = 3
+	}
+
+	var alerts []Alert
+	for _, inp := range inputs {
+		n := len(inp.Values)
+		if n < minSamples {
+			continue
+		}
+
+		current := inp.Values[n-1]
+		// Baseline = mean of all values except the last
+		var sum float64
+		for _, v := range inp.Values[:n-1] {
+			sum += v
+		}
+		baseline := sum / float64(n-1)
+
+		// Skip if baseline is too low (avoid noise on near-zero metrics)
+		if baseline < 1.0 {
+			continue
+		}
+
+		risePct := (current - baseline) / baseline * 100
+		if risePct >= pct*2 {
+			alerts = append(alerts, Alert{
+				LevelCritical, inp.Name + " Spike",
+				fmt.Sprintf("%.1f (%.0f%% rise)", current, risePct),
+				fmt.Sprintf("%s surged from baseline %.1f — rapid rise detected", inp.Name, baseline),
+				now,
+			})
+		} else if risePct >= pct {
+			alerts = append(alerts, Alert{
+				LevelWarning, inp.Name + " Spike",
+				fmt.Sprintf("%.1f (%.0f%% rise)", current, risePct),
+				fmt.Sprintf("%s rising from baseline %.1f — monitor for further increase", inp.Name, baseline),
+				now,
+			})
+		}
+	}
 	return alerts
 }
 
