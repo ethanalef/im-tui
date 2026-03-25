@@ -85,6 +85,7 @@ type PrometheusSnapshot struct {
 	PushProcessingP95   float64 // p95 of push_msg_processing_duration_seconds (seconds)
 	PushGrpcDeliveryP95 float64 // p95 of push_grpc_delivery_duration_seconds (seconds)
 	GatewayWsQueueP95   float64 // p95 of gateway_ws_write_queue_len (queue depth)
+	GatewayWsWriteP95   float64 // p95 of gateway_ws_write_duration_seconds (seconds)
 
 	// Pipeline latency histograms (NEW — requires upgrade version deployed)
 	KafkaProduceP95       float64 // p95 of kafka_produce_duration_seconds (seconds)

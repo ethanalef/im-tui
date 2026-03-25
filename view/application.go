@@ -315,7 +315,8 @@ func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot
 			LabelStyle.Render("InFlight ") + inFlightValue(prom.PushMsgInFlight) +
 			LabelStyle.Render("  Proc ") + pushLatencyValue(prom.PushProcessingP95) +
 			LabelStyle.Render("  gRPC ") + pushLatencyValue(prom.PushGrpcDeliveryP95) +
-			LabelStyle.Render("  WS ") + wsQueueValue(prom.GatewayWsQueueP95),
+			LabelStyle.Render("  WS ") + wsQueueValue(prom.GatewayWsQueueP95) +
+			LabelStyle.Render("  Write ") + pushLatencyValue(prom.GatewayWsWriteP95),
 		LabelStyle.Render("Login ") + okStyle.Render(FormatRate(prom.UserLogin)) +
 			LabelStyle.Render("  Register ") + okStyle.Render(FormatRate(prom.UserRegister)),
 		LabelStyle.Render("5XX  chat-api ") + failRateValue(prom.ChatAPI5XX) +

@@ -87,6 +87,7 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		{"e2e_single_p95", `histogram_quantile(0.95, sum(rate(message_e2e_delivery_seconds_bucket{namespace="` + ns + `",session_type="single"}[1m])) by (le))`},
 		{"gw_batch_push_p95", `histogram_quantile(0.95, sum(rate(gateway_batch_push_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
 		{"gw_batch_push_size_p95", `histogram_quantile(0.95, sum(rate(gateway_batch_push_user_count_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"gw_ws_write_p95", `histogram_quantile(0.95, sum(rate(gateway_ws_write_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
 	}
 
 	for _, q := range queries {
@@ -165,6 +166,8 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 			snap.GatewayBatchPushP95 = val
 		case "gw_batch_push_size_p95":
 			snap.GatewayBatchPushSizeP95 = val
+		case "gw_ws_write_p95":
+			snap.GatewayWsWriteP95 = val
 		}
 	}
 
