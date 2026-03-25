@@ -45,26 +45,26 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 	}
 	queries := []namedQuery{
 		{"online_users", `sum(online_user_num{namespace="` + ns + `",job="msg-gateway"})`},
-		// Replaces fork-only sent_msg_count_in_5_min
-		{"msgs_5min", `sum(rate(single_chat_msg_process_success_total{namespace="` + ns + `"}[5m]) + rate(group_chat_msg_process_success_total{namespace="` + ns + `"}[5m]))`},
-		// Replaces fork-only msg_gateway_send_msg_total
-		{"send_rate", `sum(rate(single_chat_msg_process_success_total{namespace="` + ns + `"}[1m]) + rate(group_chat_msg_process_success_total{namespace="` + ns + `"}[1m]))`},
-		{"single_chat_ok", `sum(rate(single_chat_msg_process_success_total{namespace="` + ns + `"}[1m]))`},
-		{"single_chat_fail", `sum(rate(single_chat_msg_process_failed_total{namespace="` + ns + `"}[1m]))`},
-		{"group_chat_ok", `sum(rate(group_chat_msg_process_success_total{namespace="` + ns + `"}[1m]))`},
-		{"group_chat_fail", `sum(rate(group_chat_msg_process_failed_total{namespace="` + ns + `"}[1m]))`},
+		// Message processing counters — old fork omits _total suffix, upgrade has it.
+		// Use __name__ regex to match both: "metric" and "metric_total".
+		{"msgs_5min", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[5m]) + rate({__name__=~"group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[5m]))`},
+		{"send_rate", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]) + rate({__name__=~"group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"single_chat_ok", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"single_chat_fail", `sum(rate({__name__=~"single_chat_msg_process_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"group_chat_ok", `sum(rate({__name__=~"group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"group_chat_fail", `sum(rate({__name__=~"group_chat_msg_process_failed(_total)?",namespace="` + ns + `"}[1m]))`},
 		// Tier 1: msg-transfer storage pipeline
-		{"redis_insert_ok", `sum(rate(msg_insert_redis_success_total{namespace="` + ns + `"}[1m]))`},
-		{"redis_insert_fail", `sum(rate(msg_insert_redis_failed_total{namespace="` + ns + `"}[1m]))`},
-		{"mongo_insert_ok", `sum(rate(msg_insert_mongo_success_total{namespace="` + ns + `"}[1m]))`},
-		{"mongo_insert_fail", `sum(rate(msg_insert_mongo_failed_total{namespace="` + ns + `"}[1m]))`},
-		{"seq_set_fail", `sum(rate(seq_set_failed_total{namespace="` + ns + `"}[1m]))`},
+		{"redis_insert_ok", `sum(rate({__name__=~"msg_insert_redis_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"redis_insert_fail", `sum(rate({__name__=~"msg_insert_redis_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"mongo_insert_ok", `sum(rate({__name__=~"msg_insert_mongo_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"mongo_insert_fail", `sum(rate({__name__=~"msg_insert_mongo_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"seq_set_fail", `sum(rate({__name__=~"seq_set_failed(_total)?",namespace="` + ns + `"}[1m]))`},
 		// Tier 1: push failures
-		{"push_fail", `sum(rate(msg_offline_push_failed_total{namespace="` + ns + `"}[1m]))`},
+		{"push_fail", `sum(rate({__name__=~"msg_offline_push_failed(_total)?",namespace="` + ns + `"}[1m]))`},
 		// Tier 2: push quality + activity
-		{"long_time_push", `sum(rate(msg_long_time_push_total{namespace="` + ns + `"}[1m]))`},
-		{"user_login", `sum(rate(user_login_total{namespace="` + ns + `"}[1m]))`},
-		{"user_register", `sum(rate(user_register_total{namespace="` + ns + `"}[1m]))`},
+		{"long_time_push", `sum(rate({__name__=~"msg_long_time_push(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"user_login", `sum(rate({__name__=~"user_login(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"user_register", `sum(rate({__name__=~"user_register(_total)?",namespace="` + ns + `"}[1m]))`},
 		// NOTE: metric names are http_count and api_count (NO _total suffix)
 		{"api_5xx", `sum(rate(http_count{namespace="` + ns + `",status=~"5.."}[1m]))`},
 		{"chat_api_5xx", `sum(rate(http_count{namespace="` + ns + `",job=~".*chat-api.*",status=~"5.."}[1m]))`},
