@@ -85,8 +85,16 @@ func (pf *PortForward) Start() error {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	// Timed out - kill and cleanup
-	pf.Stop()
+	// Timed out - kill and cleanup (already holding mu, so inline Stop logic)
+	if pf.cancel != nil {
+		pf.cancel()
+	}
+	if pf.cmd != nil && pf.cmd.Process != nil {
+		pf.cmd.Process.Kill()
+		pf.cmd.Wait()
+	}
+	pf.cmd = nil
+	pf.ready = false
 	return fmt.Errorf("port-forward to %s timed out", pf.service)
 }
 

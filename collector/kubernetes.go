@@ -10,14 +10,16 @@ import (
 )
 
 type KubernetesCollector struct {
-	kubeconfig string
-	namespace  string
+	kubeconfig     string
+	namespace      string
+	ignorePrefixes []string
 }
 
-func NewKubernetesCollector(kubeconfig, namespace string) *KubernetesCollector {
+func NewKubernetesCollector(kubeconfig, namespace string, ignorePrefixes []string) *KubernetesCollector {
 	return &KubernetesCollector{
-		kubeconfig: kubeconfig,
-		namespace:  namespace,
+		kubeconfig:     kubeconfig,
+		namespace:      namespace,
+		ignorePrefixes: ignorePrefixes,
 	}
 }
 
@@ -116,7 +118,13 @@ func (k *KubernetesCollector) getPods() ([]PodInfo, error) {
 	}
 
 	var pods []PodInfo
+outer:
 	for _, item := range podList.Items {
+		for _, prefix := range k.ignorePrefixes {
+			if strings.HasPrefix(item.Metadata.Name, prefix) {
+				continue outer
+			}
+		}
 		restarts := 0
 		ready := 0
 		total := len(item.Status.ContainerStatuses)
