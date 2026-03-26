@@ -40,6 +40,7 @@ const (
 	TabAlerts
 	TabLogs
 	TabSystemMap
+	TabChatAPI
 	TabCount
 )
 
@@ -52,6 +53,7 @@ var TabNames = []string{
 	"Alerts",
 	"Logs",
 	"Map",
+	"API",
 }
 
 type Config struct {
@@ -101,18 +103,20 @@ type Model struct {
 	InfraSpecs collector.InfraSpecs
 
 	// Snapshots (latest data)
-	PromSnapshot   *collector.PrometheusSnapshot
-	CWSnapshot     *collector.CloudWatchSnapshot
-	K8sSnapshot    *collector.KubernetesSnapshot
-	LocustSnapshot *collector.LocustSnapshot
-	LogSnapshot    *collector.LogSnapshot
+	PromSnapshot    *collector.PrometheusSnapshot
+	CWSnapshot      *collector.CloudWatchSnapshot
+	K8sSnapshot     *collector.KubernetesSnapshot
+	LocustSnapshot  *collector.LocustSnapshot
+	LogSnapshot     *collector.LogSnapshot
+	ChatAPISnapshot *collector.ChatAPISnapshot
 
 	// Source connectivity: "ok", "err", "off" (unreachable/not configured)
-	PromStatus   string
-	CWStatus     string
-	K8sStatus    string
-	LocustStatus string
-	LogStatus    string
+	PromStatus    string
+	CWStatus      string
+	K8sStatus     string
+	LocustStatus  string
+	LogStatus     string
+	ChatAPIStatus string
 
 	// Time series for sparklines
 	TSOnlineUsers  *collector.TimeSeries
@@ -142,6 +146,10 @@ type Model struct {
 	TSE2EGroupP95     *collector.TimeSeries // message_e2e_delivery_seconds{group} P95
 	TSGatewayEncodeP95 *collector.TimeSeries // gateway_msg_encode_duration_seconds P95
 	TSTransferBatchP95 *collector.TimeSeries // msg_transfer_batch_duration_seconds P95
+
+	// Chat API sparklines
+	TSChatAPIHTTPRate *collector.TimeSeries
+	TSChatAPI5XX      *collector.TimeSeries
 
 	// Infrastructure spike detection time series
 	TSDocDBReadIOPS   *collector.TimeSeries
@@ -213,6 +221,9 @@ func NewModel(envs []EnvBundle) Model {
 		TSGatewayEncodeP95: collector.NewTimeSeries(cap),
 		TSTransferBatchP95: collector.NewTimeSeries(cap),
 
+		TSChatAPIHTTPRate: collector.NewTimeSeries(cap),
+		TSChatAPI5XX:      collector.NewTimeSeries(cap),
+
 		TSDocDBReadIOPS:  collector.NewTimeSeries(cap),
 		TSDocDBWriteIOPS: collector.NewTimeSeries(cap),
 		TSRdsReadIOPS:    collector.NewTimeSeries(cap),
@@ -244,6 +255,7 @@ func (m Model) switchEnv(idx int) Model {
 	m.K8sSnapshot = nil
 	m.LocustSnapshot = nil
 	m.LogSnapshot = nil
+	m.ChatAPISnapshot = nil
 
 	// Reset statuses
 	m.PromStatus = ""
@@ -251,6 +263,7 @@ func (m Model) switchEnv(idx int) Model {
 	m.K8sStatus = ""
 	m.LocustStatus = ""
 	m.LogStatus = ""
+	m.ChatAPIStatus = ""
 
 	// Reset timeseries
 	cap := m.Config.SparklineCap
@@ -278,6 +291,9 @@ func (m Model) switchEnv(idx int) Model {
 	m.TSGatewayEncodeP95 = collector.NewTimeSeries(cap)
 	m.TSTransferBatchP95 = collector.NewTimeSeries(cap)
 
+	m.TSChatAPIHTTPRate = collector.NewTimeSeries(cap)
+	m.TSChatAPI5XX = collector.NewTimeSeries(cap)
+
 	m.TSDocDBReadIOPS = collector.NewTimeSeries(cap)
 	m.TSDocDBWriteIOPS = collector.NewTimeSeries(cap)
 	m.TSRdsReadIOPS = collector.NewTimeSeries(cap)
@@ -303,6 +319,7 @@ func (m Model) Init() tea.Cmd {
 		scheduleCollect("kubernetes", 0),
 		scheduleCollect("locust", 0),
 		scheduleCollect("logs", 0),
+		scheduleCollect("chatapi", 0),
 	)
 }
 
@@ -337,7 +354,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.TSGatewaySendRate.Push(snap.GatewaySendRate)
 			m.TSLongTimePush.Push(snap.LongTimePush)
 			m.TSPushInFlight.Push(snap.PushMsgInFlight)
-			m.TSMsgLagGrowth.Push(snap.MsgLagGrowthRate)
+			// MsgLagGrowthRate removed (per-batch vs per-msg mismatch); use CloudWatch MSK lag
 			m.TSE2EGroupP95.Push(snap.E2EDeliveryGroupP95)
 			m.TSGatewayEncodeP95.Push(snap.GatewayEncodeP95)
 			m.TSTransferBatchP95.Push(snap.TransferBatchP95)
@@ -425,6 +442,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.LastUpdated = time.Now()
 		return m, scheduleCollect("logs", m.Config.LogInterval)
 
+	case ChatAPIMsg:
+		snap := msg.Snapshot
+		m.ChatAPISnapshot = &snap
+		m.ChatAPIStatus = connStatus(snap.Err)
+		if snap.Err == nil {
+			m.TSChatAPIHTTPRate.Push(snap.TotalHTTPRate)
+			m.TSChatAPI5XX.Push(snap.Rate5XX)
+		}
+		m.LastUpdated = time.Now()
+		return m, scheduleCollect("chatapi", m.Config.PrometheusInterval)
+
 	case AlertMsg:
 		// Alerts are stored in evaluator, no extra action needed
 		return m, nil
@@ -463,6 +491,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, Keys.Tab8):
 		m.ActiveTab = TabSystemMap
 		m.ScrollPos, m.ScrollXPos = 0, 0
+	case key.Matches(msg, Keys.Tab9):
+		m.ActiveTab = TabChatAPI
+		m.ScrollPos, m.ScrollXPos = 0, 0
 
 	case key.Matches(msg, Keys.NextTab):
 		m.ActiveTab = (m.ActiveTab + 1) % TabCount
@@ -498,6 +529,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.collectCmd("kubernetes"),
 			m.collectCmd("locust"),
 			m.collectCmd("logs"),
+			m.collectCmd("chatapi"),
 		)
 
 	case key.Matches(msg, Keys.Pause):
@@ -513,6 +545,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.collectCmd("kubernetes"),
 				m.collectCmd("locust"),
 				m.collectCmd("logs"),
+				m.collectCmd("chatapi"),
 			)
 		}
 	}
@@ -742,6 +775,16 @@ func (m Model) collectCmd(source string) tea.Cmd {
 		return func() tea.Msg {
 			snap := c.Collect()
 			return LogMsg{Snapshot: snap}
+		}
+	case "chatapi":
+		if m.PromCollector == nil {
+			return nil
+		}
+		c := m.PromCollector
+		ns := m.Config.Namespace
+		return func() tea.Msg {
+			snap := c.CollectChatAPI(ns)
+			return ChatAPIMsg{Snapshot: snap}
 		}
 	}
 	return nil

@@ -535,19 +535,8 @@ func RenderSystemMap(
 				kc = append(kc, fmt.Sprintf(" %s%s", lbl(fmt.Sprintf("%-7s", cl.Group+":")), fmtLagStyled(cl.Lag, kafkaColor)))
 			}
 		}
-		if prom != nil && prom.Err == nil {
-			rate := prom.MsgLagGrowthRate
-			var rateStr string
-			switch {
-			case rate > 0.5:
-				rateStr = lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf(" ▲+%.0f/s", rate))
-			case rate < -0.5:
-				rateStr = lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf(" ▼%.0f/s", rate))
-			default:
-				rateStr = lipgloss.NewStyle().Foreground(ColorGreen).Render(" = steady")
-			}
-			kc = append(kc, rateStr)
-		}
+		// Kafka lag rate indicator removed — was based on per-batch vs per-msg counter mismatch.
+		// CloudWatch MSK SumOffsetLag (shown per consumer group above) is the correct lag source.
 		kafkaBox = sysBox(kc, svcW)
 	} else {
 		kafkaBox = sysBox([]string{

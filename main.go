@@ -318,6 +318,8 @@ func (a appModel) View() string {
 		content = view.RenderLogs(w, contentH, m.LogSnapshot, m.ScrollPos, m.ScrollXPos)
 	case model.TabSystemMap:
 		content = view.RenderSystemMap(w, contentH, m.K8sSnapshot, m.PromSnapshot, m.CWSnapshot, m.LocustSnapshot, m.Evaluator)
+	case model.TabChatAPI:
+		content = view.RenderChatAPI(w, contentH, m.ChatAPISnapshot, m.PromSnapshot, m.TSChatAPIHTTPRate, m.TSChatAPI5XX, m.ScrollPos)
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left, tabBar, content, statusBar)
@@ -370,6 +372,7 @@ func renderStatusBar(m model.Model, width int) string {
 	k8sSt := sourceStatus("k8s", m.K8sStatus)
 	locustSt := sourceStatus("Locust", m.LocustStatus)
 	logsSt := sourceStatus("Logs", m.LogStatus)
+	apiSt := sourceStatus("API", m.ChatAPIStatus)
 
 	updated := ""
 	if !m.LastUpdated.IsZero() {
@@ -387,7 +390,7 @@ func renderStatusBar(m model.Model, width int) string {
 	}
 	quit := lipgloss.NewStyle().Foreground(view.ColorSubtext).Render(hints)
 
-	parts := []string{env, ns, promSt, cwSt, k8sSt, locustSt, logsSt, updated, pauseIndicator, quit}
+	parts := []string{env, ns, promSt, cwSt, k8sSt, locustSt, logsSt, apiSt, updated, pauseIndicator, quit}
 
 	bar := strings.Join(parts, lipgloss.NewStyle().Foreground(view.ColorBorder).Render(" │ "))
 
@@ -419,7 +422,7 @@ func renderHelp(w, h int, envCount int) string {
 		lipgloss.NewStyle().Foreground(view.ColorCyan).Bold(true).Render("IM System Monitor - Help"),
 		"",
 		lipgloss.NewStyle().Foreground(view.ColorCyan).Render("Navigation"),
-		view.LabelStyle.Render("  1-8          ") + view.ValueStyle.Render("Switch tabs"),
+		view.LabelStyle.Render("  1-9          ") + view.ValueStyle.Render("Switch tabs"),
 		view.LabelStyle.Render("  Tab/Shift+Tab") + view.ValueStyle.Render("Next/prev tab"),
 		view.LabelStyle.Render("  j/k or ↑/↓   ") + view.ValueStyle.Render("Scroll vertical"),
 		view.LabelStyle.Render("  h/l or ←/→   ") + view.ValueStyle.Render("Scroll logs horiz"),
@@ -446,6 +449,7 @@ func renderHelp(w, h int, envCount int) string {
 		view.LabelStyle.Render("  6 Alerts     ")+view.ValueStyle.Render("Threshold violations"),
 		view.LabelStyle.Render("  7 Logs       ")+view.ValueStyle.Render("Service error logs"),
 		view.LabelStyle.Render("  8 Map        ")+view.ValueStyle.Render("System topology"),
+		view.LabelStyle.Render("  9 API        ")+view.ValueStyle.Render("Chat API metrics"),
 		"",
 		lipgloss.NewStyle().Foreground(view.ColorSubtext).Render("Press ? to close"),
 	)

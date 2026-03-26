@@ -92,8 +92,8 @@ func renderSparklinePanel(width, height int, prom *collector.PrometheusSnapshot,
 	}{
 		{"Online Users", tsOnline, prom.OnlineUsers, FormatNum(prom.OnlineUsers)},
 		{"Msgs / 5 min", tsMsgs, prom.MsgsIn5Min * 300, FormatNum(prom.MsgsIn5Min * 300)},
-		{"Send Rate", tsSendRate, prom.SendRate, FormatRate(prom.SendRate)},
-		{"GW Send Rate", tsGatewaySend, prom.GatewaySendRate, FormatRate(prom.GatewaySendRate)},
+		{"Msgs/s (In)", tsSendRate, prom.SendRate, FormatRate(prom.SendRate)},
+		{"GW Send (Out)", tsGatewaySend, prom.GatewaySendRate, FormatRate(prom.GatewaySendRate)},
 	}
 
 	var lines []string
@@ -269,21 +269,7 @@ func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot
 		halfW = 20
 	}
 
-	// Lag growth rate from Prometheus (production - consumption)
-	lagGrowth := prom.MsgLagGrowthRate
-	var lagStyled string
-	switch {
-	case lagGrowth > 1:
-		lagStyled = lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(fmt.Sprintf("+%.2f/s", lagGrowth))
-	case lagGrowth > 0:
-		lagStyled = lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(fmt.Sprintf("+%.2f/s", lagGrowth))
-	case lagGrowth < 0:
-		lagStyled = okStyle.Render(fmt.Sprintf("%.2f/s", lagGrowth))
-	default:
-		lagStyled = okStyle.Render("0.00/s")
-	}
-
-	// Left column: msg-transfer pipeline + lag indicator (compact layout)
+	// Left column: msg-transfer pipeline (compact layout)
 	leftLines := []string{
 		LabelStyle.Render("Redis Insert  ") +
 			LabelStyle.Render("OK ") + okStyle.Render(FormatRate(prom.RedisInsertOK)) +
@@ -291,8 +277,7 @@ func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot
 		LabelStyle.Render("Mongo Insert  ") +
 			LabelStyle.Render("OK ") + okStyle.Render(FormatRate(prom.MongoInsertOK)) +
 			LabelStyle.Render("  Fail ") + failRateValue(prom.MongoInsertFail),
-		LabelStyle.Render("Seq Set Fail  ") + failRateValue(prom.SeqSetFail) +
-			LabelStyle.Render("  Lag ") + lagStyled,
+		LabelStyle.Render("Seq Set Fail  ") + failRateValue(prom.SeqSetFail),
 	}
 
 	// Kafka consumer lag per group (from CloudWatch MSK, when available)

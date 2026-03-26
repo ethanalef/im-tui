@@ -91,14 +91,14 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 		fmtMetricSparkline("Online Users", FormatNum(prom.OnlineUsers), tsOnline, innerW),
 	)
 
-	// Messages in last 5 min with sparkline
+	// Messages in last 5 min with sparkline (rate * 300s = count)
 	lines = append(lines,
-		fmtMetricSparkline("Msgs/5min", FormatNum(prom.MsgsIn5Min), tsMsgs, innerW),
+		fmtMetricSparkline("Msgs/5min", FormatNum(prom.MsgsIn5Min*300), tsMsgs, innerW),
 	)
 
-	// Send rate with sparkline
+	// Msgs/s (inbound) with sparkline
 	lines = append(lines,
-		fmtMetricSparkline("Send Rate", FormatRate(prom.SendRate), tsSendRate, innerW),
+		fmtMetricSparkline("Msgs/s (In)", FormatRate(prom.SendRate), tsSendRate, innerW),
 	)
 
 	// Chat success / fail
@@ -148,7 +148,7 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 	// Storage pipeline failure indicators (compact)
 	anyStorageFail := prom.RedisInsertFail > 0 || prom.MongoInsertFail > 0 || prom.SeqSetFail > 0
 	anyPushFail := prom.PushFail > 0 || prom.API5XX > 0 || prom.LongTimePush > 0
-	anyLagIssue := prom.MsgLagGrowthRate > 0.5
+	anyLagIssue := false // lag growth removed (per-batch vs per-msg counter mismatch); use CloudWatch MSK lag
 	if anyStorageFail || anyPushFail || anyLagIssue {
 		lines = append(lines, "")
 		var failParts []string
@@ -170,9 +170,7 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 		if prom.API5XX > 0 {
 			failParts = append(failParts, AlertWarning.Render("5XX:"+FormatRate(prom.API5XX)))
 		}
-		if anyLagIssue {
-			failParts = append(failParts, AlertWarning.Render(fmt.Sprintf("Lag:+%.1f/s", prom.MsgLagGrowthRate)))
-		}
+		_ = anyLagIssue // reserved for CloudWatch MSK lag alerts
 		lines = append(lines, strings.Join(failParts, LabelStyle.Render(" ")))
 	}
 

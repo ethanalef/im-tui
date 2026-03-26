@@ -197,10 +197,8 @@ func (e *Evaluator) Evaluate(
 			}
 		}
 
-		// Prometheus: lag growth rate (production > consumption = backlog growing)
-		if prom != nil && prom.Err == nil && prom.MsgLagGrowthRate > 0.5 {
-			alerts = append(alerts, Alert{LevelWarning, "Msg Lag Growth", fmt.Sprintf("%.2f/s", prom.MsgLagGrowthRate), "msg-transfer consuming slower than production", now})
-		}
+		// NOTE: MsgLagGrowthRate alert removed — was a false positive due to
+		// per-message vs per-batch counter mismatch. Use CloudWatch MSK lag alerts above.
 
 		// ALB 5XX
 		if int(cw.ALB.Count5XX) > 0 {

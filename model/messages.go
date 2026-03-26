@@ -24,6 +24,10 @@ type LogMsg struct {
 	Snapshot collector.LogSnapshot
 }
 
+type ChatAPIMsg struct {
+	Snapshot collector.ChatAPISnapshot
+}
+
 // TickMsg triggers periodic collection.
 type TickMsg struct {
 	Source string // "prometheus", "cloudwatch", "kubernetes", "locust"

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -47,12 +48,14 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		{"online_users", `sum(online_user_num{namespace="` + ns + `",job="msg-gateway"})`},
 		// Message processing counters — old fork omits _total suffix, upgrade has it.
 		// Use __name__ regex to match both: "metric" and "metric_total".
-		{"msgs_5min", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[5m]) + rate({__name__=~"group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[5m]))`},
-		{"send_rate", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]) + rate({__name__=~"group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		// NOTE: group_chat_msg_process_success is registered but NEVER incremented;
+		// all group msgs use work_super_group_chat_msg_process_success instead.
+		{"msgs_5min", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[5m]) + rate({__name__=~"work_super_group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[5m]))`},
+		{"send_rate", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]) + rate({__name__=~"work_super_group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
 		{"single_chat_ok", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
 		{"single_chat_fail", `sum(rate({__name__=~"single_chat_msg_process_failed(_total)?",namespace="` + ns + `"}[1m]))`},
-		{"group_chat_ok", `sum(rate({__name__=~"group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
-		{"group_chat_fail", `sum(rate({__name__=~"group_chat_msg_process_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"group_chat_ok", `sum(rate({__name__=~"work_super_group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"group_chat_fail", `sum(rate({__name__=~"work_super_group_chat_msg_process_failed(_total)?",namespace="` + ns + `"}[1m]))`},
 		// Tier 1: msg-transfer storage pipeline
 		{"redis_insert_ok", `sum(rate({__name__=~"msg_insert_redis_success(_total)?",namespace="` + ns + `"}[1m]))`},
 		{"redis_insert_fail", `sum(rate({__name__=~"msg_insert_redis_failed(_total)?",namespace="` + ns + `"}[1m]))`},
@@ -171,14 +174,10 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		}
 	}
 
-	// Compute msg-transfer lag growth rate:
-	// production rate (single+group chat) minus consumption rate (redis insert)
-	// Positive = lag growing, Negative = catching up
-	productionRate := snap.SingleChatOK + snap.GroupChatOK
-	consumptionRate := snap.RedisInsertOK
-	if productionRate > 0 || consumptionRate > 0 {
-		snap.MsgLagGrowthRate = productionRate - consumptionRate
-	}
+	// NOTE: MsgLagGrowthRate removed — the old computation compared per-message
+	// production counters (single+group chat) against per-batch redis insert
+	// counters, producing a false positive lag signal. Use CloudWatch MSK
+	// SumOffsetLag (TSKafkaLag) for actual Kafka consumer lag instead.
 
 	// Per-pod goroutines
 	goroutines, err := p.queryVector(fmt.Sprintf(`go_goroutines{namespace="%s"}`, namespace))
@@ -323,6 +322,212 @@ type promData struct {
 type promResult struct {
 	Metric map[string]string `json:"metric"`
 	Value  interface{}       `json:"value"`
+}
+
+// queryVectorLabeled returns all results with their full label maps.
+func (p *PrometheusCollector) queryVectorLabeled(query string) ([]LabeledMetric, error) {
+	u := fmt.Sprintf("%s/api/v1/query?query=%s", p.baseURL, url.QueryEscape(query))
+	resp, err := p.client.Get(u)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var result promResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, err
+	}
+
+	if result.Status != "success" {
+		return nil, fmt.Errorf("prometheus: %s", result.Status)
+	}
+
+	var out []LabeledMetric
+	for _, r := range result.Data.Result {
+		val, err := parsePromValue(r.Value)
+		if err == nil {
+			out = append(out, LabeledMetric{
+				Labels: r.Metric,
+				Value:  val,
+			})
+		}
+	}
+	return out, nil
+}
+
+// CollectChatAPI fetches chat-api and OpenIM service-level metrics
+// that are not covered by the main Collect() method.
+func (p *PrometheusCollector) CollectChatAPI(namespace string) ChatAPISnapshot {
+	snap := ChatAPISnapshot{}
+	ns := namespace
+
+	type namedQuery struct {
+		name  string
+		query string
+	}
+	queries := []namedQuery{
+		// HTTP summary
+		{"http_total", `sum(rate(http_count{namespace="` + ns + `"}[1m]))`},
+		{"http_2xx", `sum(rate(http_count{namespace="` + ns + `",status=~"2.."}[1m]))`},
+		{"http_4xx", `sum(rate(http_count{namespace="` + ns + `",status=~"4.."}[1m]))`},
+		{"http_5xx", `sum(rate(http_count{namespace="` + ns + `",status=~"5.."}[1m]))`},
+		// API counters
+		{"api_request", `sum(rate({__name__=~"api_request(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"api_success", `sum(rate({__name__=~"api_request_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"api_fail", `sum(rate({__name__=~"api_request_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		// gRPC counters
+		{"grpc_request", `sum(rate({__name__=~"grpc_request(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"grpc_success", `sum(rate({__name__=~"grpc_request_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"grpc_fail", `sum(rate({__name__=~"grpc_request_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		// Message send
+		{"send_msg", `sum(rate({__name__=~"send_msg(_total)?",namespace="` + ns + `"}[1m]))`},
+		// Seq operations
+		{"seq_get_ok", `sum(rate({__name__=~"seq_get_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"seq_get_fail", `sum(rate({__name__=~"seq_get_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"seq_set_ok", `sum(rate({__name__=~"seq_set_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		// Message pull
+		{"pull_redis_ok", `sum(rate({__name__=~"msg_pull_from_redis_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"pull_redis_fail", `sum(rate({__name__=~"msg_pull_from_redis_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"pull_mongo_ok", `sum(rate({__name__=~"msg_pull_from_mongo_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"pull_mongo_fail", `sum(rate({__name__=~"msg_pull_from_mongo_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		// Push success
+		{"push_online_ok", `sum(rate({__name__=~"msg_online_push_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"push_offline_ok", `sum(rate({__name__=~"msg_offline_push_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		// Super group processing
+		{"super_proc_ok", `sum(rate({__name__=~"work_super_group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"super_proc_fail", `sum(rate({__name__=~"work_super_group_chat_msg_process_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		// Conversation push
+		{"conv_push_ok", `sum(rate({__name__=~"conversation_push_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"conv_push_fail", `sum(rate({__name__=~"conversation_push_failed(_total)?",namespace="` + ns + `"}[1m]))`},
+		// WebSocket recv counters
+		{"msg_recv", `sum(rate({__name__=~"msg_recv_total(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"newest_seq", `sum(rate({__name__=~"get_newest_seq_total(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"pull_by_seq", `sum(rate({__name__=~"pull_msg_by_seq_list_total(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"single_recv", `sum(rate({__name__=~"single_chat_msg_recv_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"group_recv", `sum(rate({__name__=~"group_chat_msg_recv_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"super_recv", `sum(rate({__name__=~"work_super_group_chat_msg_recv_success(_total)?",namespace="` + ns + `"}[1m]))`},
+	}
+
+	for _, q := range queries {
+		val, err := p.queryScalar(q.query)
+		if err != nil {
+			continue
+		}
+		switch q.name {
+		case "http_total":
+			snap.TotalHTTPRate = val
+		case "http_2xx":
+			snap.Rate2XX = val
+		case "http_4xx":
+			snap.Rate4XX = val
+		case "http_5xx":
+			snap.Rate5XX = val
+		case "api_request":
+			snap.APIRequestRate = val
+		case "api_success":
+			snap.APISuccessRate = val
+		case "api_fail":
+			snap.APIFailRate = val
+		case "grpc_request":
+			snap.GRPCRequestRate = val
+		case "grpc_success":
+			snap.GRPCSuccessRate = val
+		case "grpc_fail":
+			snap.GRPCFailRate = val
+		case "send_msg":
+			snap.SendMsgRate = val
+		case "seq_get_ok":
+			snap.SeqGetOKRate = val
+		case "seq_get_fail":
+			snap.SeqGetFailRate = val
+		case "seq_set_ok":
+			snap.SeqSetOKRate = val
+		case "pull_redis_ok":
+			snap.MsgPullRedisOKRate = val
+		case "pull_redis_fail":
+			snap.MsgPullRedisFailRate = val
+		case "pull_mongo_ok":
+			snap.MsgPullMongoOKRate = val
+		case "pull_mongo_fail":
+			snap.MsgPullMongoFailRate = val
+		case "push_online_ok":
+			snap.OnlinePushOKRate = val
+		case "push_offline_ok":
+			snap.OfflinePushOKRate = val
+		case "super_proc_ok":
+			snap.SuperGroupProcOKRate = val
+		case "super_proc_fail":
+			snap.SuperGroupProcFailRate = val
+		case "conv_push_ok":
+			snap.ConvPushOKRate = val
+		case "conv_push_fail":
+			snap.ConvPushFailRate = val
+		case "msg_recv":
+			snap.MsgRecvTotalRate = val
+		case "newest_seq":
+			snap.NewestSeqTotalRate = val
+		case "pull_by_seq":
+			snap.PullBySeqListRate = val
+		case "single_recv":
+			snap.SingleChatRecvRate = val
+		case "group_recv":
+			snap.GroupChatRecvRate = val
+		case "super_recv":
+			snap.SuperGroupRecvRate = val
+		}
+	}
+
+	// Per-endpoint HTTP breakdown
+	results, err := p.queryVectorLabeled(
+		`sum by (path, method, status) (rate(http_count{namespace="` + ns + `"}[1m]))`,
+	)
+	if err == nil {
+		type epKey struct{ Path, Method string }
+		epMap := map[epKey]*HTTPEndpointMetric{}
+		for _, r := range results {
+			path := r.Labels["path"]
+			method := r.Labels["method"]
+			status := r.Labels["status"]
+			if path == "" {
+				path = "<unknown>"
+			}
+
+			k := epKey{path, method}
+			ep, ok := epMap[k]
+			if !ok {
+				ep = &HTTPEndpointMetric{Path: path, Method: method}
+				epMap[k] = ep
+			}
+
+			if len(status) == 3 {
+				switch status[0] {
+				case '2':
+					ep.Rate2XX += r.Value
+				case '4':
+					ep.Rate4XX += r.Value
+				case '5':
+					ep.Rate5XX += r.Value
+				}
+			}
+			ep.Total += r.Value
+		}
+
+		for _, ep := range epMap {
+			if ep.Total > 0.001 { // filter out noise
+				snap.Endpoints = append(snap.Endpoints, *ep)
+			}
+		}
+		sort.Slice(snap.Endpoints, func(i, j int) bool {
+			return snap.Endpoints[i].Total > snap.Endpoints[j].Total
+		})
+	}
+
+	return snap
 }
 
 // IsReachable checks if Prometheus is responding.

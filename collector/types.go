@@ -99,10 +99,6 @@ type PrometheusSnapshot struct {
 	GatewayBatchPushP95   float64 // p95 of gateway_batch_push_duration_seconds (seconds)
 	GatewayBatchPushSizeP95 float64 // p95 of gateway_batch_push_user_count (user count)
 
-	// msg-transfer health: production vs consumption rate delta
-	// Positive = lag growing, negative = catching up, zero = keeping pace
-	MsgLagGrowthRate float64
-
 	PodMetrics      []PodMetric
 	Err             error
 }
@@ -248,6 +244,81 @@ type RedisNodeSpec struct {
 	NodeType      string
 	Engine        string
 	EngineVersion string
+}
+
+// ChatAPISnapshot holds chat-api and OpenIM service-level metrics
+// that complement the existing PrometheusSnapshot.
+type ChatAPISnapshot struct {
+	// HTTP summary (all services exposing http_count)
+	TotalHTTPRate float64
+	Rate2XX       float64
+	Rate4XX       float64
+	Rate5XX       float64
+
+	// Per-endpoint HTTP breakdown (sorted by total rate desc)
+	Endpoints []HTTPEndpointMetric
+
+	// API request counters (from gather.go)
+	APIRequestRate float64
+	APISuccessRate float64
+	APIFailRate    float64
+
+	// gRPC request counters
+	GRPCRequestRate float64
+	GRPCSuccessRate float64
+	GRPCFailRate    float64
+
+	// Message send
+	SendMsgRate float64
+
+	// Seq operations
+	SeqGetOKRate   float64
+	SeqGetFailRate float64
+	SeqSetOKRate   float64
+
+	// Message pull operations (not in PrometheusSnapshot)
+	MsgPullRedisOKRate   float64
+	MsgPullRedisFailRate float64
+	MsgPullMongoOKRate   float64
+	MsgPullMongoFailRate float64
+
+	// Push success (PrometheusSnapshot only has failures)
+	OnlinePushOKRate  float64
+	OfflinePushOKRate float64
+
+	// Super group processing (not in PrometheusSnapshot)
+	SuperGroupProcOKRate   float64
+	SuperGroupProcFailRate float64
+
+	// Conversation push
+	ConvPushOKRate   float64
+	ConvPushFailRate float64
+
+	// WebSocket recv counters
+	MsgRecvTotalRate    float64
+	NewestSeqTotalRate  float64
+	PullBySeqListRate   float64
+	SingleChatRecvRate  float64
+	GroupChatRecvRate   float64
+	SuperGroupRecvRate  float64
+
+	Err error
+}
+
+// HTTPEndpointMetric represents per-path HTTP traffic from http_count metric.
+type HTTPEndpointMetric struct {
+	Path    string
+	Method  string
+	Rate2XX float64
+	Rate4XX float64
+	Rate5XX float64
+	Total   float64
+}
+
+// LabeledMetric holds a Prometheus result with all labels preserved.
+type LabeledMetric struct {
+	Labels map[string]string
+	Value  float64
 }
 
 // LocustSnapshot holds Locust load test data.

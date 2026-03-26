@@ -11,6 +11,7 @@ type KeyMap struct {
 	Tab6     key.Binding
 	Tab7     key.Binding
 	Tab8     key.Binding
+	Tab9     key.Binding
 	NextTab  key.Binding
 	PrevTab  key.Binding
 	Up       key.Binding
@@ -33,6 +34,7 @@ var Keys = KeyMap{
 	Tab6:    key.NewBinding(key.WithKeys("6"), key.WithHelp("6", "Alerts")),
 	Tab7:    key.NewBinding(key.WithKeys("7"), key.WithHelp("7", "Logs")),
 	Tab8:    key.NewBinding(key.WithKeys("8"), key.WithHelp("8", "System Map")),
+	Tab9:    key.NewBinding(key.WithKeys("9"), key.WithHelp("9", "Chat API")),
 	NextTab: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next tab")),
 	PrevTab: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev tab")),
 	Up:      key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("k/up", "scroll up")),
