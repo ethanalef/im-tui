@@ -42,6 +42,7 @@ type LogLine struct {
 	Service string
 	Level   string // "ERROR", "FAIL", "TIMEOUT", "PANIC"
 	Message string // truncated line content
+	Count   int    // number of duplicate occurrences (1 = no duplicates)
 }
 
 func NewLogCollector(kubeconfig, namespace string, services []string, sinceSec int) *LogCollector {
@@ -75,10 +76,14 @@ func (lc *LogCollector) Collect() LogSnapshot {
 		allLines = append(allLines, lines...)
 	}
 
-	// Sort newest first and cap at maxLogLines
+	// Sort newest first
 	sort.Slice(allLines, func(i, j int) bool {
 		return allLines[i].Time > allLines[j].Time
 	})
+
+	// Deduplicate: merge lines with same Service+Level+Message, keep newest timestamp
+	allLines = deduplicateLines(allLines)
+
 	if len(allLines) > maxLogLines {
 		allLines = allLines[:maxLogLines]
 	}
@@ -141,6 +146,7 @@ func (lc *LogCollector) collectService(svc string) (ServiceLogSummary, []LogLine
 			Service: svc,
 			Level:   level,
 			Message: msg,
+			Count:   1,
 		})
 	}
 
@@ -171,6 +177,36 @@ func extractTime(line string) string {
 		return match
 	}
 	return time.Now().Format("15:04:05")
+}
+
+// deduplicateLines merges log lines with the same Service+Level+Message,
+// keeping the newest timestamp and accumulating the count.
+// Input must be sorted newest-first.
+func deduplicateLines(lines []LogLine) []LogLine {
+	if len(lines) == 0 {
+		return lines
+	}
+
+	type dedupKey struct {
+		Service string
+		Level   string
+		Message string
+	}
+
+	seen := make(map[dedupKey]int) // key -> index in result
+	result := make([]LogLine, 0, len(lines))
+
+	for _, ll := range lines {
+		key := dedupKey{Service: ll.Service, Level: ll.Level, Message: ll.Message}
+		if idx, ok := seen[key]; ok {
+			result[idx].Count++
+		} else {
+			seen[key] = len(result)
+			result = append(result, ll) // first occurrence has newest timestamp
+		}
+	}
+
+	return result
 }
 
 // extractMessage parses OpenIM structured logs (tab-separated, ANSI-colored)

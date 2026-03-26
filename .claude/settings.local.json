@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl --kubeconfig ~/.kube/im-dev-config cluster-info)",
+      "Bash(kubectl:*)"
+    ]
+  }
+}

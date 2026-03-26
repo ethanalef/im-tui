@@ -1,10 +1,12 @@
 package portforward
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -59,6 +61,10 @@ func (pf *PortForward) Start() error {
 		mapping,
 	)
 
+	// Capture stderr for diagnostics
+	var stderr bytes.Buffer
+	pf.cmd.Stderr = &stderr
+
 	// Start in background
 	if err := pf.cmd.Start(); err != nil {
 		pf.cmd = nil
@@ -66,9 +72,15 @@ func (pf *PortForward) Start() error {
 		return fmt.Errorf("starting port-forward: %w", err)
 	}
 
+	// Monitor process exit in background
+	exited := make(chan error, 1)
+	go func() {
+		exited <- pf.cmd.Wait()
+	}()
+
 	// Wait for local port to be reachable
 	addr := fmt.Sprintf("127.0.0.1:%d", pf.localPort)
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 		if err == nil {
@@ -78,8 +90,17 @@ func (pf *PortForward) Start() error {
 		}
 
 		// Check if process exited early
-		if pf.cmd.ProcessState != nil {
+		select {
+		case waitErr := <-exited:
+			errMsg := strings.TrimSpace(stderr.String())
+			if errMsg != "" {
+				return fmt.Errorf("port-forward exited: %s", errMsg)
+			}
+			if waitErr != nil {
+				return fmt.Errorf("port-forward exited: %w", waitErr)
+			}
 			return fmt.Errorf("port-forward exited prematurely")
+		default:
 		}
 
 		time.Sleep(200 * time.Millisecond)
@@ -89,12 +110,13 @@ func (pf *PortForward) Start() error {
 	if pf.cancel != nil {
 		pf.cancel()
 	}
-	if pf.cmd != nil && pf.cmd.Process != nil {
-		pf.cmd.Process.Kill()
-		pf.cmd.Wait()
-	}
+	<-exited // wait for goroutine to finish
 	pf.cmd = nil
 	pf.ready = false
+	errMsg := strings.TrimSpace(stderr.String())
+	if errMsg != "" {
+		return fmt.Errorf("port-forward to %s timed out: %s", pf.service, errMsg)
+	}
 	return fmt.Errorf("port-forward to %s timed out", pf.service)
 }
 

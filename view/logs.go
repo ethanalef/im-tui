@@ -140,6 +140,9 @@ func renderLogTail(w, h int, logLines []collector.LogLine, scrollPos, scrollXPos
 
 		// Apply horizontal scroll to message
 		msg := ll.Message
+		if ll.Count > 1 {
+			msg = fmt.Sprintf("(%dx) %s", ll.Count, msg)
+		}
 		runes := []rune(msg)
 		if scrollXPos > 0 && scrollXPos < len(runes) {
 			msg = "…" + string(runes[scrollXPos:])
