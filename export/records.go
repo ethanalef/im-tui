@@ -83,6 +83,7 @@ type ServiceLogRecord struct {
 
 type AppMetrics struct {
 	OnlineUsers    float64 `json:"online_users"`
+	OnlineConns    float64 `json:"online_conns"`
 	Msgs5Min       float64 `json:"msgs_5min"`
 	SendRate       float64 `json:"send_rate"`
 	SingleChatOK   float64 `json:"single_chat_ok"`
@@ -219,6 +220,7 @@ type SessionSummary struct {
 
 type AppSummary struct {
 	OnlineUsers MinMaxAvg `json:"online_users"`
+	OnlineConns MinMaxAvg `json:"online_conns"`
 	Msgs5Min    MinMaxAvg `json:"msgs_5min"`
 	SendRate    MinMaxAvg `json:"send_rate"`
 }

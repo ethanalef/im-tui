@@ -46,6 +46,7 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 	}
 	queries := []namedQuery{
 		{"online_users", `sum(online_user_num{namespace="` + ns + `",job="msg-gateway"})`},
+		{"online_conns", `sum(online_user_conn_num{namespace="` + ns + `",job="msg-gateway"})`},
 		// Message processing counters — old fork omits _total suffix, upgrade has it.
 		// Use __name__ regex to match both: "metric" and "metric_total".
 		// NOTE: group_chat_msg_process_success is registered but NEVER incremented;
@@ -103,6 +104,8 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		switch q.name {
 		case "online_users":
 			snap.OnlineUsers = val
+		case "online_conns":
+			snap.OnlineConns = val
 		case "msgs_5min":
 			snap.MsgsIn5Min = val
 		case "send_rate":
@@ -224,6 +227,16 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		for i, pm := range snap.PodMetrics {
 			if val, ok := onlineUsers[pm.Pod]; ok {
 				snap.PodMetrics[i].OnlineUsers = val
+			}
+		}
+	}
+
+	// Per-pod online connection count (msg-gateway only, upgrade version)
+	onlineConns, err := p.queryVector(fmt.Sprintf(`online_user_conn_num{namespace="%s"}`, namespace))
+	if err == nil {
+		for i, pm := range snap.PodMetrics {
+			if val, ok := onlineConns[pm.Pod]; ok {
+				snap.PodMetrics[i].OnlineConns = val
 			}
 		}
 	}

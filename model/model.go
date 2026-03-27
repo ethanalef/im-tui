@@ -568,6 +568,7 @@ func (m Model) exportSnapshot() export.SnapshotRecord {
 	if p := m.PromSnapshot; p != nil && p.Err == nil {
 		app := &export.AppMetrics{
 			OnlineUsers:     p.OnlineUsers,
+			OnlineConns:     p.OnlineConns,
 			Msgs5Min:        p.MsgsIn5Min,
 			SendRate:        p.SendRate,
 			SingleChatOK:    p.SingleChatOK,

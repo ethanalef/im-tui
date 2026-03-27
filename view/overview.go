@@ -87,8 +87,12 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 	var lines []string
 
 	// Online users with sparkline
+	onlineLabel := "Online Users"
+	if prom.OnlineConns > 0 {
+		onlineLabel = fmt.Sprintf("Online Users (conns: %s)", FormatNum(prom.OnlineConns))
+	}
 	lines = append(lines,
-		fmtMetricSparkline("Online Users", FormatNum(prom.OnlineUsers), tsOnline, innerW),
+		fmtMetricSparkline(onlineLabel, FormatNum(prom.OnlineUsers), tsOnline, innerW),
 	)
 
 	// Messages in last 5 min with sparkline (rate * 300s = count)

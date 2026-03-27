@@ -328,7 +328,11 @@ func RenderSystemMap(
 	if gw.Total > 0 {
 		gwContent = append(gwContent, fmt.Sprintf(" %s", lbl(fmt.Sprintf("%d/%d pods", gw.Running, gw.Total))))
 		if prom != nil && prom.Err == nil {
-			gwContent = append(gwContent, fmt.Sprintf(" %s%s", lbl("online:"), v(fmt.Sprintf("%.0f", prom.OnlineUsers))))
+			if prom.OnlineConns > 0 {
+				gwContent = append(gwContent, fmt.Sprintf(" %s%s %s%s", lbl("online:"), v(fmt.Sprintf("%.0f", prom.OnlineUsers)), lbl("conns:"), v(fmt.Sprintf("%.0f", prom.OnlineConns))))
+			} else {
+				gwContent = append(gwContent, fmt.Sprintf(" %s%s", lbl("online:"), v(fmt.Sprintf("%.0f", prom.OnlineUsers))))
+			}
 		}
 		if h := findHPA("msg-gateway", hpas); h != nil {
 			gwContent = append(gwContent, fmt.Sprintf(" %s", lbl(fmt.Sprintf("HPA %d/%d..%d", h.Current, h.MinReplicas, h.MaxReplicas))))

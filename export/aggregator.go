@@ -51,6 +51,7 @@ type aggregator struct {
 
 	// App metrics
 	onlineUsers stat
+	onlineConns stat
 	msgs5Min    stat
 	sendRate    stat
 
@@ -84,6 +85,7 @@ func newAggregator() *aggregator {
 	return &aggregator{
 		startTime:        time.Now(),
 		onlineUsers:      newStat(),
+		onlineConns:      newStat(),
 		msgs5Min:         newStat(),
 		sendRate:         newStat(),
 		docdbCPU:         newStat(),
@@ -105,6 +107,7 @@ func (a *aggregator) ingest(snap *SnapshotRecord) {
 
 	if snap.App != nil {
 		a.onlineUsers.add(snap.App.OnlineUsers)
+		a.onlineConns.add(snap.App.OnlineConns)
 		a.msgs5Min.add(snap.App.Msgs5Min)
 		a.sendRate.add(snap.App.SendRate)
 	}
@@ -162,6 +165,7 @@ func (a *aggregator) summary() SessionSummary {
 	return SessionSummary{
 		App: AppSummary{
 			OnlineUsers: a.onlineUsers.result(),
+			OnlineConns: a.onlineConns.result(),
 			Msgs5Min:    a.msgs5Min.result(),
 			SendRate:    a.sendRate.result(),
 		},

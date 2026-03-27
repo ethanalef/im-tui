@@ -90,7 +90,7 @@ func renderSparklinePanel(width, height int, prom *collector.PrometheusSnapshot,
 		cur   float64
 		fmt   string
 	}{
-		{"Online Users", tsOnline, prom.OnlineUsers, FormatNum(prom.OnlineUsers)},
+		{"Online Users", tsOnline, prom.OnlineUsers, onlineUsersLabel(prom)},
 		{"Msgs / 5 min", tsMsgs, prom.MsgsIn5Min * 300, FormatNum(prom.MsgsIn5Min * 300)},
 		{"Msgs/s (In)", tsSendRate, prom.SendRate, FormatRate(prom.SendRate)},
 		{"GW Send (Out)", tsGatewaySend, prom.GatewaySendRate, FormatRate(prom.GatewaySendRate)},
@@ -456,6 +456,14 @@ func gwHealthStatus(p collector.PodMetric) (string, string) {
 	return "OK", ""
 }
 
+// onlineUsersLabel formats the online users value, appending connection count if available.
+func onlineUsersLabel(prom *collector.PrometheusSnapshot) string {
+	if prom.OnlineConns > 0 {
+		return fmt.Sprintf("%s (conns: %s)", FormatNum(prom.OnlineUsers), FormatNum(prom.OnlineConns))
+	}
+	return FormatNum(prom.OnlineUsers)
+}
+
 // goroutineStyled renders a goroutine count with color coding.
 // For gateway pods, color is based on excess above expected (users*3 + base).
 func goroutineStyled(count float64, isGW bool, onlineUsers float64) string {
@@ -595,7 +603,11 @@ func renderPodMetricsTable(width, height int, pods []collector.PodMetric, scroll
 		// Online users column — only meaningful for gateway pods
 		var onlineStr string
 		if isGW && p.OnlineUsers > 0 {
-			onlineStr = ValueStyle.Render(FormatNum(p.OnlineUsers))
+			if p.OnlineConns > 0 {
+				onlineStr = ValueStyle.Render(fmt.Sprintf("%s/%s", FormatNum(p.OnlineUsers), FormatNum(p.OnlineConns)))
+			} else {
+				onlineStr = ValueStyle.Render(FormatNum(p.OnlineUsers))
+			}
 		} else if isGW {
 			onlineStr = LabelStyle.Render("0")
 		} else {

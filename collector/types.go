@@ -52,6 +52,7 @@ func (ts *TimeSeries) Len() int {
 // PrometheusSnapshot holds all Prometheus metrics at a point in time.
 type PrometheusSnapshot struct {
 	OnlineUsers     float64
+	OnlineConns     float64 // online_user_conn_num gauge (total WS connections, includes multi-device)
 	MsgsIn5Min      float64
 	SendRate        float64
 	SingleChatOK    float64
@@ -110,6 +111,7 @@ type PodMetric struct {
 	HeapInUse    float64 // go_memstats_heap_inuse_bytes (RSS leak indicator)
 	HeapReleased float64 // go_memstats_heap_released_bytes (low = RSS not returned to OS)
 	OnlineUsers  float64 // online_user_num gauge (msg-gateway only)
+	OnlineConns  float64 // online_user_conn_num gauge (msg-gateway only)
 }
 
 // CloudWatchSnapshot holds all AWS metrics.
