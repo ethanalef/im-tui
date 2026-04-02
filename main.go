@@ -298,7 +298,7 @@ func (a appModel) View() string {
 			m.Evaluator, m.TSOnlineUsers, m.TSMsgs5Min, m.TSSendRate, m.TSLocustRPS, m.TSLocustFail,
 			m.TSDocDBCPU, m.TSRdsCPU, m.TSAlbRT)
 	case model.TabApp:
-		content = view.RenderApplication(w, contentH, m.PromSnapshot, m.CWSnapshot,
+		content = view.RenderApplication(w, contentH, m.PromSnapshot, m.CWSnapshot, m.ChatAPISnapshot,
 			m.TSOnlineUsers, m.TSMsgs5Min, m.TSSendRate,
 			m.TSRedisInsertOK, m.TSMongoInsertOK, m.TSUserLogin,
 			m.TSGatewaySendRate,

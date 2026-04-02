@@ -20,6 +20,7 @@ func RenderApplication(
 	width, height int,
 	prom *collector.PrometheusSnapshot,
 	cw *collector.CloudWatchSnapshot,
+	chatAPI *collector.ChatAPISnapshot,
 	tsOnline, tsMsgs, tsSendRate *collector.TimeSeries,
 	tsRedisOK, tsMongoOK, tsLogin *collector.TimeSeries,
 	tsGatewaySend *collector.TimeSeries,
@@ -41,24 +42,28 @@ func RenderApplication(
 		return placeholder
 	}
 
-	// Layout proportions: top ~20%, pipeline ~15%, mid-top ~15%, mid-bot ~20%, bottom ~30%
-	topHeight := height * 20 / 100
+	// Layout proportions: top ~18%, pipeline ~13%, mid-top ~13%, batch ~10%, mid-bot ~18%, bottom ~28%
+	topHeight := height * 18 / 100
 	if topHeight < 7 {
 		topHeight = 7
 	}
-	pipelineHeight := height * 15 / 100
+	pipelineHeight := height * 13 / 100
 	if pipelineHeight < 5 {
 		pipelineHeight = 5
 	}
-	midTopHeight := height * 15 / 100
+	midTopHeight := height * 13 / 100
 	if midTopHeight < 5 {
 		midTopHeight = 5
 	}
-	midBotHeight := height * 20 / 100
+	batchHeight := height * 10 / 100
+	if batchHeight < 4 {
+		batchHeight = 4
+	}
+	midBotHeight := height * 18 / 100
 	if midBotHeight < 6 {
 		midBotHeight = 6
 	}
-	botHeight := height - topHeight - pipelineHeight - midTopHeight - midBotHeight
+	botHeight := height - topHeight - pipelineHeight - midTopHeight - batchHeight - midBotHeight
 	if botHeight < 5 {
 		botHeight = 5
 	}
@@ -66,10 +71,11 @@ func RenderApplication(
 	topPanel := renderSparklinePanel(width, topHeight, prom, tsOnline, tsMsgs, tsSendRate, tsGatewaySend)
 	pipelinePanel := renderPipelineLatency(width, pipelineHeight, prom, tsE2EGroupP95, tsGatewayEncodeP95, tsTransferBatchP95)
 	midTopPanel := renderMessageCounters(width, midTopHeight, prom)
+	batchPanel := renderBatchSend(width, batchHeight, chatAPI)
 	midBotPanel := renderStoragePipeline(width, midBotHeight, prom, cw, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush)
 	botPanel := renderPodMetricsTable(width, botHeight, prom.PodMetrics, scrollPos)
 
-	return lipgloss.JoinVertical(lipgloss.Left, topPanel, pipelinePanel, midTopPanel, midBotPanel, botPanel)
+	return lipgloss.JoinVertical(lipgloss.Left, topPanel, pipelinePanel, midTopPanel, batchPanel, midBotPanel, botPanel)
 }
 
 // renderSparklinePanel draws sparkline rows inside a single panel.
@@ -414,6 +420,65 @@ func wsQueueValue(depth float64) string {
 	default:
 		return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
 	}
+}
+
+// renderBatchSend draws the batch send (群發) metrics panel.
+func renderBatchSend(width, height int, chatAPI *collector.ChatAPISnapshot) string {
+	innerW := width - 4
+	halfW := innerW / 2
+	if halfW < 20 {
+		halfW = 20
+	}
+
+	okStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorGreen)
+
+	// Check if any batch send activity exists
+	hasBatchData := chatAPI != nil && (chatAPI.BatchSendRequestRate > 0 ||
+		chatAPI.BatchSendErrorRate > 0 ||
+		chatAPI.BatchSendTargetOKRate > 0 ||
+		chatAPI.BatchSendDurationP95 > 0)
+
+	if !hasBatchData {
+		// Idle state — show dashes
+		leftLines := []string{
+			LabelStyle.Render("Requests  ") +
+				LabelStyle.Render("OK ") + okStyle.Render(FormatRate(0)) +
+				LabelStyle.Render("  Err ") + failRateValue(0) +
+				LabelStyle.Render("     Targets  ") +
+				LabelStyle.Render("OK ") + okStyle.Render(FormatRate(0)) +
+				LabelStyle.Render("  Fail ") + failRateValue(0),
+			LabelStyle.Render("Duration  ") +
+				LabelStyle.Render("Total ") + pipelineLatencyValue(0) +
+				LabelStyle.Render("  Setup ") + pipelineLatencyValue(0) +
+				LabelStyle.Render("  Loop ") + pipelineLatencyValue(0) +
+				LabelStyle.Render("  RPC ") + pipelineLatencyValue(0),
+		}
+		content := strings.Join(leftLines, "\n")
+		return Panel("Batch Send (群發)", content, width, height)
+	}
+
+	lines := []string{
+		LabelStyle.Render("Requests  ") +
+			LabelStyle.Render("OK ") + okStyle.Render(FormatRate(chatAPI.BatchSendRequestRate)) +
+			LabelStyle.Render("  Err ") + failRateValue(chatAPI.BatchSendErrorRate) +
+			LabelStyle.Render("     Targets  ") +
+			LabelStyle.Render("OK ") + okStyle.Render(FormatRate(chatAPI.BatchSendTargetOKRate)) +
+			LabelStyle.Render("  Fail ") + failRateValue(chatAPI.BatchSendTargetFailRate),
+		LabelStyle.Render("Duration  ") +
+			LabelStyle.Render("Total ") + pipelineLatencyValue(chatAPI.BatchSendDurationP95) +
+			LabelStyle.Render("  Setup ") + pipelineLatencyValue(chatAPI.BatchSendSetupP95) +
+			LabelStyle.Render("  Loop ") + pipelineLatencyValue(chatAPI.BatchSendLoopP95) +
+			LabelStyle.Render("  RPC ") + pipelineLatencyValue(chatAPI.BatchSendRPCP95),
+	}
+
+	// Add targets/req if available
+	if chatAPI.BatchSendTargetsP95 > 0 {
+		lines = append(lines,
+			LabelStyle.Render("Targets/Req   ") + groupSizeValue(chatAPI.BatchSendTargetsP95))
+	}
+
+	content := strings.Join(lines, "\n")
+	return Panel("Batch Send (群發)", content, width, height)
 }
 
 // isGatewayPod returns true if the pod name indicates a msg-gateway pod.
