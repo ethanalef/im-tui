@@ -304,6 +304,17 @@ type ChatAPISnapshot struct {
 	GroupChatRecvRate   float64
 	SuperGroupRecvRate  float64
 
+	// Batch send (IM-16749) — POST /v1/batch/send_batch_message
+	BatchSendRequestRate    float64 // batch_send_requests_total{status="success"} rate
+	BatchSendErrorRate      float64 // batch_send_requests_total{status="error"} rate
+	BatchSendTargetOKRate   float64 // batch_send_targets_total{status="success"} rate
+	BatchSendTargetFailRate float64 // batch_send_targets_total{status="failed"} rate
+	BatchSendDurationP95    float64 // batch_send_duration_seconds P95 (total request)
+	BatchSendSetupP95       float64 // batch_send_setup_duration_seconds P95 (auth+permission)
+	BatchSendLoopP95        float64 // batch_send_loop_duration_seconds P95 (RPC fan-out)
+	BatchSendRPCP95         float64 // batch_send_rpc_duration_seconds P95 (per-target RPC)
+	BatchSendTargetsP95     float64 // batch_send_targets_per_request P95 (targets per request)
+
 	Err error
 }
 

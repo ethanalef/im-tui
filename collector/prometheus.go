@@ -51,8 +51,8 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		// Use __name__ regex to match both: "metric" and "metric_total".
 		// NOTE: group_chat_msg_process_success is registered but NEVER incremented;
 		// all group msgs use work_super_group_chat_msg_process_success instead.
-		{"msgs_5min", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[5m]) + rate({__name__=~"work_super_group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[5m]))`},
-		{"send_rate", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]) + rate({__name__=~"work_super_group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		{"msgs_5min", `(sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[5m])) or vector(0)) + (sum(rate({__name__=~"work_super_group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[5m])) or vector(0))`},
+		{"send_rate", `(sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m])) or vector(0)) + (sum(rate({__name__=~"work_super_group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m])) or vector(0))`},
 		{"single_chat_ok", `sum(rate({__name__=~"single_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
 		{"single_chat_fail", `sum(rate({__name__=~"single_chat_msg_process_failed(_total)?",namespace="` + ns + `"}[1m]))`},
 		{"group_chat_ok", `sum(rate({__name__=~"work_super_group_chat_msg_process_success(_total)?",namespace="` + ns + `"}[1m]))`},
@@ -424,6 +424,16 @@ func (p *PrometheusCollector) CollectChatAPI(namespace string) ChatAPISnapshot {
 		{"single_recv", `sum(rate({__name__=~"single_chat_msg_recv_success(_total)?",namespace="` + ns + `"}[1m]))`},
 		{"group_recv", `sum(rate({__name__=~"group_chat_msg_recv_success(_total)?",namespace="` + ns + `"}[1m]))`},
 		{"super_recv", `sum(rate({__name__=~"work_super_group_chat_msg_recv_success(_total)?",namespace="` + ns + `"}[1m]))`},
+		// Batch send (IM-16749) — chat-api POST /v1/batch/send_batch_message
+		{"batch_send_req_ok", `sum(rate(batch_send_requests_total{namespace="` + ns + `",status="success"}[1m]))`},
+		{"batch_send_req_err", `sum(rate(batch_send_requests_total{namespace="` + ns + `",status="error"}[1m]))`},
+		{"batch_send_targ_ok", `sum(rate(batch_send_targets_total{namespace="` + ns + `",status="success"}[1m]))`},
+		{"batch_send_targ_fail", `sum(rate(batch_send_targets_total{namespace="` + ns + `",status="failed"}[1m]))`},
+		{"batch_send_dur_p95", `histogram_quantile(0.95, sum(rate(batch_send_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"batch_send_setup_p95", `histogram_quantile(0.95, sum(rate(batch_send_setup_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"batch_send_loop_p95", `histogram_quantile(0.95, sum(rate(batch_send_loop_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"batch_send_rpc_p95", `histogram_quantile(0.95, sum(rate(batch_send_rpc_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"batch_send_targ_size_p95", `histogram_quantile(0.95, sum(rate(batch_send_targets_per_request_bucket{namespace="` + ns + `"}[1m])) by (le))`},
 	}
 
 	for _, q := range queries {
@@ -492,6 +502,25 @@ func (p *PrometheusCollector) CollectChatAPI(namespace string) ChatAPISnapshot {
 			snap.GroupChatRecvRate = val
 		case "super_recv":
 			snap.SuperGroupRecvRate = val
+		// Batch send (IM-16749)
+		case "batch_send_req_ok":
+			snap.BatchSendRequestRate = val
+		case "batch_send_req_err":
+			snap.BatchSendErrorRate = val
+		case "batch_send_targ_ok":
+			snap.BatchSendTargetOKRate = val
+		case "batch_send_targ_fail":
+			snap.BatchSendTargetFailRate = val
+		case "batch_send_dur_p95":
+			snap.BatchSendDurationP95 = val
+		case "batch_send_setup_p95":
+			snap.BatchSendSetupP95 = val
+		case "batch_send_loop_p95":
+			snap.BatchSendLoopP95 = val
+		case "batch_send_rpc_p95":
+			snap.BatchSendRPCP95 = val
+		case "batch_send_targ_size_p95":
+			snap.BatchSendTargetsP95 = val
 		}
 	}
 
