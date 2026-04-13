@@ -422,7 +422,7 @@ func wsQueueValue(depth float64) string {
 	}
 }
 
-// renderBatchSend draws the batch send (群發) metrics panel.
+// renderBatchSend draws the batch send metrics panel.
 func renderBatchSend(width, height int, chatAPI *collector.ChatAPISnapshot) string {
 	innerW := width - 4
 	halfW := innerW / 2
@@ -454,7 +454,7 @@ func renderBatchSend(width, height int, chatAPI *collector.ChatAPISnapshot) stri
 				LabelStyle.Render("  RPC ") + pipelineLatencyValue(0),
 		}
 		content := strings.Join(leftLines, "\n")
-		return Panel("Batch Send (群發)", content, width, height)
+		return Panel("Batch Send", content, width, height)
 	}
 
 	lines := []string{
@@ -478,7 +478,7 @@ func renderBatchSend(width, height int, chatAPI *collector.ChatAPISnapshot) stri
 	}
 
 	content := strings.Join(lines, "\n")
-	return Panel("Batch Send (群發)", content, width, height)
+	return Panel("Batch Send", content, width, height)
 }
 
 // isGatewayPod returns true if the pod name indicates a msg-gateway pod.
