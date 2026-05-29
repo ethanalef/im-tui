@@ -35,6 +35,16 @@ Identify all available Prometheus metrics across OpenIM services (v3.8.3) and re
 |--------|------|-------------|
 | `msg_offline_push_failed_total` | Counter | Failed offline push notifications |
 | `msg_long_time_push_total` | Counter | Pushes taking >10 seconds |
+| `push_zombie_filter_candidates_total{scope}` | Counter | Offline-push targets examined by the IM-17718 zombie filter |
+| `push_zombie_filter_dropped_total{scope}` | Counter | Targets skipped because durable last-online is older than the threshold |
+| `push_zombie_filter_kept_total{scope}` | Counter | Targets preserved after zombie filtering |
+| `push_zombie_filter_unknown_total{scope}` | Counter | Targets preserved because MySQL last-online/login time is missing |
+| `push_zombie_filter_fail_open_total{scope}` | Counter | Targets preserved because the filter lookup failed open |
+| `push_zombie_filter_cache_hit_total{scope,source}` | Counter | Targets resolved by Redis cache before MySQL fallback |
+| `push_zombie_filter_cache_miss_total{scope}` | Counter | Targets missing from Redis cache and requiring MySQL fallback |
+| `push_zombie_filter_cache_error_total{scope}` | Counter | Targets falling back because Redis cache lookup failed |
+| `push_zombie_filter_db_lookup_total{scope}` | Counter | Targets looked up from MySQL by zombie filter |
+| `push_zombie_filter_cache_write_total{scope,result}` | Counter | Redis cache writebacks after MySQL lookup |
 
 #### openim-rpc-auth (port 20160)
 | Metric | Type | Description |
@@ -100,6 +110,8 @@ These metrics indicate data loss or service degradation. Any non-zero failure ra
 | `msg_insert_mongo_failed_total` | msg-transfer | `rate(msg_insert_mongo_failed_total[1m])` | > 0 = critical |
 | `seq_set_failed_total` | msg-transfer | `rate(seq_set_failed_total[1m])` | > 0 = critical |
 | `msg_offline_push_failed_total` | push | `rate(msg_offline_push_failed_total[1m])` | > 0 = warning |
+| `push_zombie_filter_fail_open_total` | push | `rate(push_zombie_filter_fail_open_total[1m])` | > 0 = warning |
+| `push_zombie_filter_cache_error_total` | push | `rate(push_zombie_filter_cache_error_total[1m])` | > 0 = warning |
 
 **Why:** Redis/Mongo insert failures = messages not delivered/persisted. Seq failures = message ordering corruption. Push failures = users not notified.
 
@@ -110,6 +122,9 @@ These metrics indicate data loss or service degradation. Any non-zero failure ra
 | `msg_insert_redis_success_total` | msg-transfer | `rate(msg_insert_redis_success_total[1m])` | Storage throughput sparkline |
 | `msg_insert_mongo_success_total` | msg-transfer | `rate(msg_insert_mongo_success_total[1m])` | Persistence throughput sparkline |
 | `msg_long_time_push_total` | push | `rate(msg_long_time_push_total[1m])` | Push delivery quality |
+| `push_zombie_filter_dropped_total` | push | `rate(push_zombie_filter_dropped_total[1m])` | Zombie offline-push reduction rate |
+| `push_zombie_filter_cache_hit_total` | push | `rate(push_zombie_filter_cache_hit_total[1m])` | Redis cache effectiveness |
+| `push_zombie_filter_db_lookup_total` | push | `rate(push_zombie_filter_db_lookup_total[1m])` | MySQL fallback pressure |
 | `user_login_total` | auth | `rate(user_login_total[1m])` | Login activity trend |
 | `http_count{status=~"5.."}` | api | `sum(rate(http_count{status=~"5.."}[1m]))` | API server error rate |
 

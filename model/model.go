@@ -119,14 +119,14 @@ type Model struct {
 	ChatAPIStatus string
 
 	// Time series for sparklines
-	TSOnlineUsers  *collector.TimeSeries
-	TSMsgs5Min     *collector.TimeSeries
-	TSSendRate     *collector.TimeSeries
-	TSLocustRPS    *collector.TimeSeries
-	TSLocustFail   *collector.TimeSeries
-	TSDocDBCPU     *collector.TimeSeries
-	TSRdsCPU       *collector.TimeSeries
-	TSAlbRT        *collector.TimeSeries
+	TSOnlineUsers *collector.TimeSeries
+	TSMsgs5Min    *collector.TimeSeries
+	TSSendRate    *collector.TimeSeries
+	TSLocustRPS   *collector.TimeSeries
+	TSLocustFail  *collector.TimeSeries
+	TSDocDBCPU    *collector.TimeSeries
+	TSRdsCPU      *collector.TimeSeries
+	TSAlbRT       *collector.TimeSeries
 
 	// Tier 2 sparklines
 	TSRedisInsertOK   *collector.TimeSeries
@@ -135,15 +135,15 @@ type Model struct {
 	TSGatewaySendRate *collector.TimeSeries
 
 	// Push pipeline sparklines
-	TSLongTimePush    *collector.TimeSeries // Prometheus msg_long_time_push rate
-	TSPushInFlight    *collector.TimeSeries // push_msg_in_flight gauge
+	TSLongTimePush *collector.TimeSeries // Prometheus msg_long_time_push rate
+	TSPushInFlight *collector.TimeSeries // push_msg_in_flight gauge
 
 	// Kafka / msg-transfer sparklines
-	TSKafkaLag        *collector.TimeSeries // CloudWatch MSK total SumOffsetLag
-	TSMsgLagGrowth    *collector.TimeSeries // Prometheus production-consumption rate delta
+	TSKafkaLag     *collector.TimeSeries // CloudWatch MSK total SumOffsetLag
+	TSMsgLagGrowth *collector.TimeSeries // Prometheus production-consumption rate delta
 
 	// Pipeline latency sparklines (upgrade version metrics)
-	TSE2EGroupP95     *collector.TimeSeries // message_e2e_delivery_seconds{group} P95
+	TSE2EGroupP95      *collector.TimeSeries // message_e2e_delivery_seconds{group} P95
 	TSGatewayEncodeP95 *collector.TimeSeries // gateway_msg_encode_duration_seconds P95
 	TSTransferBatchP95 *collector.TimeSeries // msg_transfer_batch_duration_seconds P95
 
@@ -152,14 +152,14 @@ type Model struct {
 	TSChatAPI5XX      *collector.TimeSeries
 
 	// Infrastructure spike detection time series
-	TSDocDBReadIOPS   *collector.TimeSeries
-	TSDocDBWriteIOPS  *collector.TimeSeries
-	TSRdsReadIOPS     *collector.TimeSeries
-	TSRdsWriteIOPS    *collector.TimeSeries
-	TSRdsDiskQueue    *collector.TimeSeries
-	TSRedisCPU        *collector.TimeSeries // max across nodes
-	TSRedisMemory     *collector.TimeSeries // max across nodes
-	TSRedisEvictions  *collector.TimeSeries // sum across nodes
+	TSDocDBReadIOPS  *collector.TimeSeries
+	TSDocDBWriteIOPS *collector.TimeSeries
+	TSRdsReadIOPS    *collector.TimeSeries
+	TSRdsWriteIOPS   *collector.TimeSeries
+	TSRdsDiskQueue   *collector.TimeSeries
+	TSRedisCPU       *collector.TimeSeries // max across nodes
+	TSRedisMemory    *collector.TimeSeries // max across nodes
+	TSRedisEvictions *collector.TimeSeries // sum across nodes
 
 	// Alerts
 	Evaluator *alert.Evaluator
@@ -567,42 +567,52 @@ func (m Model) exportSnapshot() export.SnapshotRecord {
 
 	if p := m.PromSnapshot; p != nil && p.Err == nil {
 		app := &export.AppMetrics{
-			OnlineUsers:     p.OnlineUsers,
-			OnlineConns:     p.OnlineConns,
-			Msgs5Min:        p.MsgsIn5Min,
-			SendRate:        p.SendRate,
-			SingleChatOK:    p.SingleChatOK,
-			SingleChatFail:  p.SingleChatFail,
-			GroupChatOK:     p.GroupChatOK,
-			GroupChatFail:   p.GroupChatFail,
-			PodCount:        len(p.PodMetrics),
-			RedisInsertOK:   p.RedisInsertOK,
-			RedisInsertFail: p.RedisInsertFail,
-			MongoInsertOK:   p.MongoInsertOK,
-			MongoInsertFail: p.MongoInsertFail,
-			SeqSetFail:      p.SeqSetFail,
-			PushFail:        p.PushFail,
-			LongTimePush:    p.LongTimePush,
-			UserLogin:       p.UserLogin,
-			UserRegister:    p.UserRegister,
-			API5XX:          p.API5XX,
-			ChatAPI5XX:      p.ChatAPI5XX,
-			OpenIMAPI5XX:    p.OpenIMAPI5XX,
-			GatewaySendRate:     p.GatewaySendRate,
-			PushMsgInFlight:     p.PushMsgInFlight,
-			PushProcessingP95:   p.PushProcessingP95,
-			PushGrpcDeliveryP95: p.PushGrpcDeliveryP95,
-			GatewayWsQueueP95:   p.GatewayWsQueueP95,
+			OnlineUsers:                p.OnlineUsers,
+			OnlineConns:                p.OnlineConns,
+			Msgs5Min:                   p.MsgsIn5Min,
+			SendRate:                   p.SendRate,
+			SingleChatOK:               p.SingleChatOK,
+			SingleChatFail:             p.SingleChatFail,
+			GroupChatOK:                p.GroupChatOK,
+			GroupChatFail:              p.GroupChatFail,
+			PodCount:                   len(p.PodMetrics),
+			RedisInsertOK:              p.RedisInsertOK,
+			RedisInsertFail:            p.RedisInsertFail,
+			MongoInsertOK:              p.MongoInsertOK,
+			MongoInsertFail:            p.MongoInsertFail,
+			SeqSetFail:                 p.SeqSetFail,
+			PushFail:                   p.PushFail,
+			LongTimePush:               p.LongTimePush,
+			UserLogin:                  p.UserLogin,
+			UserRegister:               p.UserRegister,
+			API5XX:                     p.API5XX,
+			ChatAPI5XX:                 p.ChatAPI5XX,
+			OpenIMAPI5XX:               p.OpenIMAPI5XX,
+			GatewaySendRate:            p.GatewaySendRate,
+			PushMsgInFlight:            p.PushMsgInFlight,
+			PushProcessingP95:          p.PushProcessingP95,
+			PushGrpcDeliveryP95:        p.PushGrpcDeliveryP95,
+			GatewayWsQueueP95:          p.GatewayWsQueueP95,
+			PushZombieCandidates:       p.PushZombieCandidates,
+			PushZombieDropped:          p.PushZombieDropped,
+			PushZombieKept:             p.PushZombieKept,
+			PushZombieUnknown:          p.PushZombieUnknown,
+			PushZombieFailOpen:         p.PushZombieFailOpen,
+			PushZombieCacheHit:         p.PushZombieCacheHit,
+			PushZombieCacheMiss:        p.PushZombieCacheMiss,
+			PushZombieCacheError:       p.PushZombieCacheError,
+			PushZombieDBLookup:         p.PushZombieDBLookup,
+			PushZombieCacheWriteFailed: p.PushZombieCacheWriteFailed,
 
-			KafkaProduceP95:       p.KafkaProduceP95,
-			TransferBatchP95:      p.TransferBatchP95,
-			TransferRedisCacheP95: p.TransferRedisCacheP95,
-			TransferMongoWriteP95: p.TransferMongoWriteP95,
-			PushGroupMemberP95:    p.PushGroupMemberP95,
-			GatewayEncodeP95:      p.GatewayEncodeP95,
-			E2EDeliveryGroupP95:   p.E2EDeliveryGroupP95,
-			E2EDeliverySingleP95:  p.E2EDeliverySingleP95,
-			GatewayBatchPushP95:   p.GatewayBatchPushP95,
+			KafkaProduceP95:         p.KafkaProduceP95,
+			TransferBatchP95:        p.TransferBatchP95,
+			TransferRedisCacheP95:   p.TransferRedisCacheP95,
+			TransferMongoWriteP95:   p.TransferMongoWriteP95,
+			PushGroupMemberP95:      p.PushGroupMemberP95,
+			GatewayEncodeP95:        p.GatewayEncodeP95,
+			E2EDeliveryGroupP95:     p.E2EDeliveryGroupP95,
+			E2EDeliverySingleP95:    p.E2EDeliverySingleP95,
+			GatewayBatchPushP95:     p.GatewayBatchPushP95,
 			GatewayBatchPushSizeP95: p.GatewayBatchPushSizeP95,
 		}
 		// Export per-gateway-pod health for dead connection leak analysis

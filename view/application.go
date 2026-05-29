@@ -60,8 +60,8 @@ func RenderApplication(
 		batchHeight = 4
 	}
 	midBotHeight := height * 18 / 100
-	if midBotHeight < 6 {
-		midBotHeight = 6
+	if midBotHeight < 8 {
+		midBotHeight = 8
 	}
 	botHeight := height - topHeight - pipelineHeight - midTopHeight - batchHeight - midBotHeight
 	if botHeight < 5 {
@@ -308,6 +308,16 @@ func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot
 			LabelStyle.Render("  gRPC ") + pushLatencyValue(prom.PushGrpcDeliveryP95) +
 			LabelStyle.Render("  WS ") + wsQueueValue(prom.GatewayWsQueueP95) +
 			LabelStyle.Render("  Write ") + pushLatencyValue(prom.GatewayWsWriteP95),
+		LabelStyle.Render("Zombie Filter  ") +
+			LabelStyle.Render("Drop ") + okStyle.Render(FormatRate(prom.PushZombieDropped)) +
+			LabelStyle.Render("  Keep ") + okStyle.Render(FormatRate(prom.PushZombieKept)) +
+			LabelStyle.Render("  Unknown ") + ValueStyle.Render(FormatRate(prom.PushZombieUnknown)) +
+			LabelStyle.Render("  FailOpen ") + failRateValue(prom.PushZombieFailOpen),
+		LabelStyle.Render("Zombie Cache  ") +
+			LabelStyle.Render("Hit ") + okStyle.Render(FormatRate(prom.PushZombieCacheHit)) +
+			LabelStyle.Render("  Miss ") + ValueStyle.Render(FormatRate(prom.PushZombieCacheMiss)) +
+			LabelStyle.Render("  DB ") + ValueStyle.Render(FormatRate(prom.PushZombieDBLookup)) +
+			LabelStyle.Render("  Err ") + failRateValue(prom.PushZombieCacheError+prom.PushZombieCacheWriteFailed),
 		LabelStyle.Render("Login ") + okStyle.Render(FormatRate(prom.UserLogin)) +
 			LabelStyle.Render("  Register ") + okStyle.Render(FormatRate(prom.UserRegister)),
 		LabelStyle.Render("5XX  chat-api ") + failRateValue(prom.ChatAPI5XX) +
@@ -474,7 +484,7 @@ func renderBatchSend(width, height int, chatAPI *collector.ChatAPISnapshot) stri
 	// Add targets/req if available
 	if chatAPI.BatchSendTargetsP95 > 0 {
 		lines = append(lines,
-			LabelStyle.Render("Targets/Req   ") + groupSizeValue(chatAPI.BatchSendTargetsP95))
+			LabelStyle.Render("Targets/Req   ")+groupSizeValue(chatAPI.BatchSendTargetsP95))
 	}
 
 	content := strings.Join(lines, "\n")

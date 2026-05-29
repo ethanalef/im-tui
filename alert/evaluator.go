@@ -105,6 +105,12 @@ func (e *Evaluator) Evaluate(
 		if prom.LongTimePush > 0 {
 			alerts = append(alerts, Alert{LevelWarning, "Push Slow >10s", fmt.Sprintf("%.2f/s", prom.LongTimePush), "Messages taking >10s from send to push delivery — push pipeline backlogged", now})
 		}
+		if prom.PushZombieFailOpen > 0 {
+			alerts = append(alerts, Alert{LevelWarning, "Push Zombie FailOpen", fmt.Sprintf("%.2f/s", prom.PushZombieFailOpen), "Zombie offline-push filter is active but preserving candidates due to lookup failure", now})
+		}
+		if prom.PushZombieCacheError+prom.PushZombieCacheWriteFailed > 0 {
+			alerts = append(alerts, Alert{LevelWarning, "Push Zombie Cache", fmt.Sprintf("%.2f/s", prom.PushZombieCacheError+prom.PushZombieCacheWriteFailed), "Zombie offline-push Redis cache has lookup or writeback errors", now})
+		}
 		if prom.API5XX > 0 {
 			alerts = append(alerts, Alert{LevelWarning, "API 5XX", fmt.Sprintf("%.2f/s", prom.API5XX), "API server returning 5XX errors", now})
 		}
@@ -287,8 +293,8 @@ func (e *Evaluator) Evaluate(
 	// Pipeline latency P95 alerts (upgrade version metrics — skip if NaN/0)
 	if prom != nil && prom.Err == nil {
 		type latencyCheck struct {
-			name     string
-			value    float64
+			name       string
+			value      float64
 			warn, crit float64
 		}
 		for _, lc := range []latencyCheck{

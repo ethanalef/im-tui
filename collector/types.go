@@ -51,14 +51,14 @@ func (ts *TimeSeries) Len() int {
 
 // PrometheusSnapshot holds all Prometheus metrics at a point in time.
 type PrometheusSnapshot struct {
-	OnlineUsers     float64
-	OnlineConns     float64 // online_user_conn_num gauge (total WS connections, includes multi-device)
-	MsgsIn5Min      float64
-	SendRate        float64
-	SingleChatOK    float64
-	SingleChatFail  float64
-	GroupChatOK     float64
-	GroupChatFail   float64
+	OnlineUsers    float64
+	OnlineConns    float64 // online_user_conn_num gauge (total WS connections, includes multi-device)
+	MsgsIn5Min     float64
+	SendRate       float64
+	SingleChatOK   float64
+	SingleChatFail float64
+	GroupChatOK    float64
+	GroupChatFail  float64
 
 	// Tier 1: msg-transfer storage pipeline (any failure = data loss risk)
 	RedisInsertOK   float64 // rate(msg_insert_redis_success_total[1m])
@@ -68,40 +68,50 @@ type PrometheusSnapshot struct {
 	SeqSetFail      float64 // rate(seq_set_failed_total[1m])
 
 	// Tier 1: push failures
-	PushFail        float64 // rate(msg_offline_push_failed_total[1m])
+	PushFail float64 // rate(msg_offline_push_failed_total[1m])
 
 	// Tier 2: push quality + activity
-	LongTimePush    float64 // rate(msg_long_time_push_total[1m])
-	UserLogin       float64 // rate(user_login_total[1m])
-	UserRegister    float64 // rate(user_register_total[1m])
-	API5XX          float64 // sum(rate(http_count{status=~"5.."}[1m]))
-	ChatAPI5XX      float64 // sum(rate(http_count{job=~".*chat-api.*",status=~"5.."}[1m]))
-	OpenIMAPI5XX    float64 // sum(rate(http_count{job=~".*openim-api.*",status=~"5.."}[1m]))
+	LongTimePush float64 // rate(msg_long_time_push_total[1m])
+	UserLogin    float64 // rate(user_login_total[1m])
+	UserRegister float64 // rate(user_register_total[1m])
+	API5XX       float64 // sum(rate(http_count{status=~"5.."}[1m]))
+	ChatAPI5XX   float64 // sum(rate(http_count{job=~".*chat-api.*",status=~"5.."}[1m]))
+	OpenIMAPI5XX float64 // sum(rate(http_count{job=~".*openim-api.*",status=~"5.."}[1m]))
 
 	// Tier 3: gateway-level counter (now available via ServiceMonitor)
 	GatewaySendRate float64 // rate(msg_gateway_send_msg_total[1m])
 
 	// Push pipeline metrics (invisible queue visibility)
-	PushMsgInFlight     float64 // push_msg_in_flight gauge
-	PushProcessingP95   float64 // p95 of push_msg_processing_duration_seconds (seconds)
-	PushGrpcDeliveryP95 float64 // p95 of push_grpc_delivery_duration_seconds (seconds)
-	GatewayWsQueueP95   float64 // p95 of gateway_ws_write_queue_len (queue depth)
-	GatewayWsWriteP95   float64 // p95 of gateway_ws_write_duration_seconds (seconds)
+	PushMsgInFlight            float64 // push_msg_in_flight gauge
+	PushProcessingP95          float64 // p95 of push_msg_processing_duration_seconds (seconds)
+	PushGrpcDeliveryP95        float64 // p95 of push_grpc_delivery_duration_seconds (seconds)
+	GatewayWsQueueP95          float64 // p95 of gateway_ws_write_queue_len (queue depth)
+	GatewayWsWriteP95          float64 // p95 of gateway_ws_write_duration_seconds (seconds)
+	PushZombieCandidates       float64 // rate(push_zombie_filter_candidates_total[1m])
+	PushZombieDropped          float64 // rate(push_zombie_filter_dropped_total[1m])
+	PushZombieKept             float64 // rate(push_zombie_filter_kept_total[1m])
+	PushZombieUnknown          float64 // rate(push_zombie_filter_unknown_total[1m])
+	PushZombieFailOpen         float64 // rate(push_zombie_filter_fail_open_total[1m])
+	PushZombieCacheHit         float64 // rate(push_zombie_filter_cache_hit_total[1m])
+	PushZombieCacheMiss        float64 // rate(push_zombie_filter_cache_miss_total[1m])
+	PushZombieCacheError       float64 // rate(push_zombie_filter_cache_error_total[1m])
+	PushZombieDBLookup         float64 // rate(push_zombie_filter_db_lookup_total[1m])
+	PushZombieCacheWriteFailed float64 // rate(push_zombie_filter_cache_write_total{result="failed"}[1m])
 
 	// Pipeline latency histograms (NEW — requires upgrade version deployed)
-	KafkaProduceP95       float64 // p95 of kafka_produce_duration_seconds (seconds)
-	TransferBatchP95      float64 // p95 of msg_transfer_batch_duration_seconds (seconds)
-	TransferRedisCacheP95 float64 // p95 of msg_transfer_redis_cache_duration_seconds (seconds)
-	TransferMongoWriteP95 float64 // p95 of msg_transfer_mongo_write_duration_seconds (seconds)
-	PushGroupMemberP95    float64 // p95 of push_group_member_count (member count)
-	GatewayEncodeP95      float64 // p95 of gateway_msg_encode_duration_seconds (seconds)
-	E2EDeliveryGroupP95   float64 // p95 of message_e2e_delivery_seconds{session_type="group"} (seconds)
-	E2EDeliverySingleP95  float64 // p95 of message_e2e_delivery_seconds{session_type="single"} (seconds)
-	GatewayBatchPushP95   float64 // p95 of gateway_batch_push_duration_seconds (seconds)
+	KafkaProduceP95         float64 // p95 of kafka_produce_duration_seconds (seconds)
+	TransferBatchP95        float64 // p95 of msg_transfer_batch_duration_seconds (seconds)
+	TransferRedisCacheP95   float64 // p95 of msg_transfer_redis_cache_duration_seconds (seconds)
+	TransferMongoWriteP95   float64 // p95 of msg_transfer_mongo_write_duration_seconds (seconds)
+	PushGroupMemberP95      float64 // p95 of push_group_member_count (member count)
+	GatewayEncodeP95        float64 // p95 of gateway_msg_encode_duration_seconds (seconds)
+	E2EDeliveryGroupP95     float64 // p95 of message_e2e_delivery_seconds{session_type="group"} (seconds)
+	E2EDeliverySingleP95    float64 // p95 of message_e2e_delivery_seconds{session_type="single"} (seconds)
+	GatewayBatchPushP95     float64 // p95 of gateway_batch_push_duration_seconds (seconds)
 	GatewayBatchPushSizeP95 float64 // p95 of gateway_batch_push_user_count (user count)
 
-	PodMetrics      []PodMetric
-	Err             error
+	PodMetrics []PodMetric
+	Err        error
 }
 
 type PodMetric struct {
@@ -150,14 +160,14 @@ type DocDBMetrics struct {
 }
 
 type RDSMetrics struct {
-	CPUPercent    float64
-	Connections   float64
-	FreeMemory    float64 // bytes
-	ReadLatency   float64 // seconds
-	WriteLatency  float64 // seconds
-	DiskQueue     float64
-	ReadIOPS      float64
-	WriteIOPS     float64
+	CPUPercent   float64
+	Connections  float64
+	FreeMemory   float64 // bytes
+	ReadLatency  float64 // seconds
+	WriteLatency float64 // seconds
+	DiskQueue    float64
+	ReadIOPS     float64
+	WriteIOPS    float64
 }
 
 type RedisNodeMetrics struct {
@@ -180,10 +190,10 @@ type ALBMetrics struct {
 
 // KubernetesSnapshot holds all kubectl-sourced data.
 type KubernetesSnapshot struct {
-	Pods     []PodInfo
-	HPAs     []HPAInfo
-	Events   []EventInfo
-	Err      error
+	Pods   []PodInfo
+	HPAs   []HPAInfo
+	Events []EventInfo
+	Err    error
 }
 
 type PodInfo struct {
@@ -211,12 +221,12 @@ type HPAInfo struct {
 }
 
 type EventInfo struct {
-	Type      string
-	Reason    string
-	Object    string
-	Message   string
-	Age       string
-	Count     int
+	Type    string
+	Reason  string
+	Object  string
+	Message string
+	Age     string
+	Count   int
 }
 
 // InfraSpecs holds static infrastructure specifications fetched once at startup.
@@ -235,8 +245,8 @@ type RDSSpec struct {
 	InstanceClass    string
 	Engine           string
 	EngineVersion    string
-	AllocatedStorage int32  // GiB
-	MaxStorage       int32  // GiB (0 = autoscaling disabled)
+	AllocatedStorage int32 // GiB
+	MaxStorage       int32 // GiB (0 = autoscaling disabled)
 	MultiAZ          bool
 	StorageType      string // gp3, io1, etc.
 }
@@ -297,12 +307,12 @@ type ChatAPISnapshot struct {
 	ConvPushFailRate float64
 
 	// WebSocket recv counters
-	MsgRecvTotalRate    float64
-	NewestSeqTotalRate  float64
-	PullBySeqListRate   float64
-	SingleChatRecvRate  float64
-	GroupChatRecvRate   float64
-	SuperGroupRecvRate  float64
+	MsgRecvTotalRate   float64
+	NewestSeqTotalRate float64
+	PullBySeqListRate  float64
+	SingleChatRecvRate float64
+	GroupChatRecvRate  float64
+	SuperGroupRecvRate float64
 
 	// Batch send (IM-16749) — POST /v1/batch/send_batch_message
 	BatchSendRequestRate    float64 // batch_send_requests_total{status="success"} rate
@@ -336,33 +346,33 @@ type LabeledMetric struct {
 
 // LocustSnapshot holds Locust load test data.
 type LocustSnapshot struct {
-	Available   bool
-	State       string
-	UserCount   int
-	TotalRPS    float64
-	FailRatio   float64
-	Endpoints   []LocustEndpoint
-	Failures    []LocustFailure
-	Err         error
+	Available bool
+	State     string
+	UserCount int
+	TotalRPS  float64
+	FailRatio float64
+	Endpoints []LocustEndpoint
+	Failures  []LocustFailure
+	Err       error
 }
 
 type LocustEndpoint struct {
-	Method         string
-	Name           string
-	NumRequests    int
-	NumFailures    int
-	RPS            float64
-	FailPercent    float64
+	Method          string
+	Name            string
+	NumRequests     int
+	NumFailures     int
+	RPS             float64
+	FailPercent     float64
 	AvgResponseTime float64
-	P50            float64
-	P95            float64
-	P99            float64
+	P50             float64
+	P95             float64
+	P99             float64
 	MaxResponseTime float64
 }
 
 type LocustFailure struct {
-	Method    string
-	Name      string
-	Error     string
+	Method      string
+	Name        string
+	Error       string
 	Occurrences int
 }

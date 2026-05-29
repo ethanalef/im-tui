@@ -207,16 +207,17 @@ func (c *CloudWatchCollector) Collect() CloudWatchSnapshot {
 		})
 	}
 
-	// ALB
+	// ALB — aggregate across all ALBs: sum counters, max of P99
 	albBase := base + len(c.redisNodes)*7
 	for i := range c.albNames {
 		offset := albBase + i*4
-		snap.ALB = ALBMetrics{
-			ResponseTimeP99: get(offset),
-			Count5XX:        get(offset + 1),
-			ActiveConns:     get(offset + 2),
-			RequestCount:    get(offset + 3),
+		p99 := get(offset)
+		if p99 > snap.ALB.ResponseTimeP99 {
+			snap.ALB.ResponseTimeP99 = p99
 		}
+		snap.ALB.Count5XX += get(offset + 1)
+		snap.ALB.ActiveConns += get(offset + 2)
+		snap.ALB.RequestCount += get(offset + 3)
 	}
 
 	// MSK consumer group lag — separate API call (may be cross-account)

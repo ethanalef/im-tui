@@ -28,7 +28,7 @@ chat-api metrics are **not yet active** — requires ConfigMap update first (see
 | msg-gateway | 12140 | `online_user_num`, `rpc_count` |
 | msg-transfer | 12020 | `msg_insert_redis_*_total`, `msg_insert_mongo_*_total`, `seq_set_failed_total` |
 | openim-api | 12002 | `api_count`, `http_count` |
-| openim-push | 12170 | `msg_offline_push_failed_total`, `msg_long_time_push_total` |
+| openim-push | 12170 | `msg_offline_push_failed_total`, `msg_long_time_push_total`, `push_zombie_filter_*_total` |
 | openim-msg | 20130 | `single_chat_msg_process_*_total`, `group_chat_msg_process_*_total` |
 | openim-rpc-user | 20110 | `user_register_total` |
 | openim-rpc-auth | 20160 | `user_login_total` |
@@ -195,6 +195,19 @@ The following metrics bugs were fixed in code. The prometheus config is already 
 1. **Fixed metric name typo**: `msg_lone_time_push_total` → `msg_long_time_push_total`
 2. **Wired Redis insert counters**: `msg_insert_redis_success_total` and `msg_insert_redis_failed_total` are now registered and incremented in msg-transfer
 3. **Implemented HTTP/API metrics**: `http_count` and `api_count` CounterVecs now have real implementations (were previously stubs)
+4. **Added IM-17718 zombie offline-push filter metrics** on `openim-push`:
+   - `push_zombie_filter_candidates_total{scope}`
+   - `push_zombie_filter_dropped_total{scope}`
+   - `push_zombie_filter_kept_total{scope}`
+   - `push_zombie_filter_unknown_total{scope}`
+   - `push_zombie_filter_fail_open_total{scope}`
+   - `push_zombie_filter_cache_hit_total{scope,source}`
+   - `push_zombie_filter_cache_miss_total{scope}`
+   - `push_zombie_filter_cache_error_total{scope}`
+   - `push_zombie_filter_db_lookup_total{scope}`
+   - `push_zombie_filter_cache_write_total{scope,result}`
+   - `scope="group"` is producer-side group queue reduction; `scope="single"` is direct single-chat provider filtering.
+   - `source` is `last_ws_active`, `durable`, or `unknown`; `result` is `success` or `failed`.
 
 ### chat-api (requires k8s config changes above)
 
@@ -214,6 +227,12 @@ curl http://<prometheus>/api/v1/targets?state=active | grep chat-api
 # Check chat-server metrics are being scraped
 curl 'http://<prometheus>/api/v1/query?query=online_user_num'
 # Should return non-empty result
+
+# Check IM-17718 zombie offline-push filter metrics after the feature is enabled
+curl 'http://<prometheus>/api/v1/query?query=push_zombie_filter_candidates_total'
+curl 'http://<prometheus>/api/v1/query?query=push_zombie_filter_dropped_total'
+curl 'http://<prometheus>/api/v1/query?query=push_zombie_filter_cache_hit_total'
+curl 'http://<prometheus>/api/v1/query?query=push_zombie_filter_db_lookup_total'
 
 # Check chat-api metrics are being scraped
 curl 'http://<prometheus>/api/v1/query?query=http_count'

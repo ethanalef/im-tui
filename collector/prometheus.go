@@ -80,6 +80,16 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		{"push_processing_p95", `histogram_quantile(0.95, sum(rate(push_msg_processing_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
 		{"push_grpc_p95", `histogram_quantile(0.95, sum(rate(push_grpc_delivery_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
 		{"gw_ws_queue_p95", `histogram_quantile(0.95, sum(rate(gateway_ws_write_queue_len_bucket{namespace="` + ns + `"}[1m])) by (le))`},
+		{"push_zombie_candidates", `sum(rate(push_zombie_filter_candidates_total{namespace="` + ns + `"}[1m]))`},
+		{"push_zombie_dropped", `sum(rate(push_zombie_filter_dropped_total{namespace="` + ns + `"}[1m]))`},
+		{"push_zombie_kept", `sum(rate(push_zombie_filter_kept_total{namespace="` + ns + `"}[1m]))`},
+		{"push_zombie_unknown", `sum(rate(push_zombie_filter_unknown_total{namespace="` + ns + `"}[1m]))`},
+		{"push_zombie_fail_open", `sum(rate(push_zombie_filter_fail_open_total{namespace="` + ns + `"}[1m]))`},
+		{"push_zombie_cache_hit", `sum(rate(push_zombie_filter_cache_hit_total{namespace="` + ns + `"}[1m]))`},
+		{"push_zombie_cache_miss", `sum(rate(push_zombie_filter_cache_miss_total{namespace="` + ns + `"}[1m]))`},
+		{"push_zombie_cache_error", `sum(rate(push_zombie_filter_cache_error_total{namespace="` + ns + `"}[1m]))`},
+		{"push_zombie_db_lookup", `sum(rate(push_zombie_filter_db_lookup_total{namespace="` + ns + `"}[1m]))`},
+		{"push_zombie_cache_write_failed", `sum(rate(push_zombie_filter_cache_write_total{namespace="` + ns + `",result="failed"}[1m]))`},
 		// Pipeline latency histograms (upgrade version only — gracefully ignored if metrics absent)
 		{"kafka_produce_p95", `histogram_quantile(0.95, sum(rate(kafka_produce_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
 		{"transfer_batch_p95", `histogram_quantile(0.95, sum(rate(msg_transfer_batch_duration_seconds_bucket{namespace="` + ns + `"}[1m])) by (le))`},
@@ -152,6 +162,26 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 			snap.PushGrpcDeliveryP95 = val
 		case "gw_ws_queue_p95":
 			snap.GatewayWsQueueP95 = val
+		case "push_zombie_candidates":
+			snap.PushZombieCandidates = val
+		case "push_zombie_dropped":
+			snap.PushZombieDropped = val
+		case "push_zombie_kept":
+			snap.PushZombieKept = val
+		case "push_zombie_unknown":
+			snap.PushZombieUnknown = val
+		case "push_zombie_fail_open":
+			snap.PushZombieFailOpen = val
+		case "push_zombie_cache_hit":
+			snap.PushZombieCacheHit = val
+		case "push_zombie_cache_miss":
+			snap.PushZombieCacheMiss = val
+		case "push_zombie_cache_error":
+			snap.PushZombieCacheError = val
+		case "push_zombie_db_lookup":
+			snap.PushZombieDBLookup = val
+		case "push_zombie_cache_write_failed":
+			snap.PushZombieCacheWriteFailed = val
 		case "kafka_produce_p95":
 			snap.KafkaProduceP95 = val
 		case "transfer_batch_p95":
