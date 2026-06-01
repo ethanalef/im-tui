@@ -14,7 +14,7 @@ import (
 // FetchInfraSpecs retrieves static infrastructure specs from AWS Describe APIs.
 // Called once at startup — these don't change during a TUI session.
 // DocDB specs come from config (GetCluster API requires IAM permissions we don't have).
-func FetchInfraSpecs(region, rdsInstanceID string, redisNodes []string, docdbSpec DocDBSpec) InfraSpecs {
+func FetchInfraSpecs(region, rdsInstanceID string, redisNodes []string, redisRoles map[string]string, docdbSpec DocDBSpec) InfraSpecs {
 	specs := InfraSpecs{
 		DocDB: docdbSpec,
 	}
@@ -28,7 +28,7 @@ func FetchInfraSpecs(region, rdsInstanceID string, redisNodes []string, docdbSpe
 	defer cancel()
 
 	specs.RDS = fetchRDSSpec(ctx, cfg, rdsInstanceID)
-	specs.Redis = fetchRedisSpecs(ctx, cfg, redisNodes)
+	specs.Redis = fetchRedisSpecs(ctx, cfg, redisNodes, redisRoles)
 
 	return specs
 }
@@ -71,7 +71,7 @@ func fetchRDSSpec(ctx context.Context, cfg aws.Config, instanceID string) RDSSpe
 	return spec
 }
 
-func fetchRedisSpecs(ctx context.Context, cfg aws.Config, nodes []string) []RedisNodeSpec {
+func fetchRedisSpecs(ctx context.Context, cfg aws.Config, nodes []string, roles map[string]string) []RedisNodeSpec {
 	if len(nodes) == 0 {
 		return nil
 	}
@@ -84,12 +84,12 @@ func fetchRedisSpecs(ctx context.Context, cfg aws.Config, nodes []string) []Redi
 			CacheClusterId: aws.String(nodeID),
 		})
 		if err != nil || len(out.CacheClusters) == 0 {
-			specs = append(specs, RedisNodeSpec{NodeID: nodeID})
+			specs = append(specs, RedisNodeSpec{NodeID: nodeID, Role: roles[nodeID]})
 			continue
 		}
 
 		cc := out.CacheClusters[0]
-		s := RedisNodeSpec{NodeID: nodeID}
+		s := RedisNodeSpec{NodeID: nodeID, Role: roles[nodeID]}
 		if cc.CacheNodeType != nil {
 			s.NodeType = *cc.CacheNodeType
 		}

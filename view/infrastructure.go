@@ -10,7 +10,7 @@ import (
 )
 
 // RenderInfrastructure renders Tab 3: CloudWatch infrastructure metrics.
-func RenderInfrastructure(width, height int, cw *collector.CloudWatchSnapshot, specs collector.InfraSpecs, tsDocDBCPU, tsRdsCPU, tsAlbRT *collector.TimeSeries, scrollPos int) string {
+func RenderInfrastructure(width, height int, cw *collector.CloudWatchSnapshot, specs collector.InfraSpecs, tsDocDBCPU, tsRdsCPU, tsAlbRT *collector.TimeSeries, redisCPUWarn, redisCPUCrit, redisEvictWarn, redisEvictCrit float64, scrollPos int) string {
 	if width < 20 {
 		return "Terminal too narrow"
 	}
@@ -34,9 +34,9 @@ func RenderInfrastructure(width, height int, cw *collector.CloudWatchSnapshot, s
 	rdsContent := renderRDS(halfW-2, topH-2, cw.RDS, specs.RDS, tsRdsCPU)
 	rdsPanel := Panel("RDS MySQL", rdsContent, halfW, topH)
 
-	// Bottom-left: ElastiCache Redis
-	redisContent := renderRedis(halfW-2, botH-2, cw.Redis, specs.Redis)
-	redisPanel := Panel("ElastiCache Redis", redisContent, halfW, botH)
+	// Bottom-left: ElastiCache Redis (per-replica table)
+	redisContent := renderRedis(halfW-2, botH-2, cw.Redis, specs.Redis, redisCPUWarn, redisCPUCrit, redisEvictWarn, redisEvictCrit)
+	redisPanel := Panel(fmt.Sprintf("ElastiCache Redis (%d nodes)", len(cw.Redis)), redisContent, halfW, botH)
 
 	// Bottom-right: ALB
 	albContent := renderALB(halfW-2, botH-2, cw.ALB, tsAlbRT)
@@ -131,14 +131,25 @@ func renderRDS(w, h int, r collector.RDSMetrics, spec collector.RDSSpec, ts *col
 	return strings.Join(lines, "\n")
 }
 
-func renderRedis(w, h int, nodes []collector.RedisNodeMetrics, nodeSpecs []collector.RedisNodeSpec) string {
+// renderRedis renders a per-replica table of ElastiCache nodes. EngineCPU is colored
+// by the redis_cpu_warn/crit thresholds, evictions by redis_evict_warn/crit, and the
+// hottest replica (highest EngineCPU among replicas) is highlighted.
+func renderRedis(w, h int, nodes []collector.RedisNodeMetrics, nodeSpecs []collector.RedisNodeSpec, cpuWarn, cpuCrit, evictWarn, evictCrit float64) string {
 	if len(nodes) == 0 {
 		return LabelStyle.Render("No Redis nodes")
 	}
 
-	barW := w - 24
-	if barW < 6 {
-		barW = 6
+	// Identify the hottest replica by EngineCPU (primary excluded from the contest).
+	hottestIdx := -1
+	var hottestCPU float64
+	for i, n := range nodes {
+		if n.Role == collector.RedisRolePrimary {
+			continue
+		}
+		if hottestIdx == -1 || n.EngineCPU > hottestCPU {
+			hottestIdx = i
+			hottestCPU = n.EngineCPU
+		}
 	}
 
 	var lines []string
@@ -147,43 +158,79 @@ func renderRedis(w, h int, nodes []collector.RedisNodeMetrics, nodeSpecs []colle
 			lines = append(lines, lipgloss.NewStyle().Foreground(ColorSubtext).Render(specLine))
 		}
 	}
+
+	// Table header: node | role | eCPU% | conns | GETs | evict
+	header := fmt.Sprintf("%-14s %-4s %6s %6s %7s %6s", "node", "role", "eCPU", "conn", "GET", "evict")
+	lines = append(lines, lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render(header))
+
 	for i, n := range nodes {
 		shortName := n.NodeID
-		if len(shortName) > 20 {
-			shortName = "..." + shortName[len(shortName)-17:]
-		}
-		lines = append(lines,
-			lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render(fmt.Sprintf("Node %d ", i+1))+
-				LabelStyle.Render(shortName),
-		)
-		lines = append(lines, ProgressBarLabeled("  CPU", n.CPUPercent, barW, w))
-		lines = append(lines, ProgressBarLabeled("  Mem", n.MemoryPercent, barW, w))
-
-		hitColor := ColorGreen
-		if n.HitRate < 90 {
-			hitColor = ColorYellow
-		}
-		if n.HitRate < 50 {
-			hitColor = ColorRed
+		// Show the trailing node suffix (e.g. "...-003") which is what differs.
+		if len(shortName) > 14 {
+			shortName = "…" + shortName[len(shortName)-13:]
 		}
 
-		lines = append(lines,
-			LabelStyle.Render("  Hit Rate: ")+lipgloss.NewStyle().Foreground(hitColor).Render(fmt.Sprintf("%.1f%%", n.HitRate))+
-				LabelStyle.Render("  Evict: ")+ValueStyle.Render(fmt.Sprintf("%.0f", n.Evictions))+
-				LabelStyle.Render("  Conn: ")+ValueStyle.Render(fmt.Sprintf("%.0f", n.Connections)),
-		)
-		lines = append(lines,
-			LabelStyle.Render("  Cmds: ")+
-				lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("GET:%.0f ", n.GetTypeCmds))+
-				lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("SET:%.0f", n.SetTypeCmds)),
-		)
-
-		if i < len(nodes)-1 {
-			lines = append(lines, "")
+		role := "rep"
+		if n.Role == collector.RedisRolePrimary {
+			role = "PRI"
 		}
+
+		nameCell := fmt.Sprintf("%-14s", shortName)
+		if i == hottestIdx {
+			// Highlight the hottest replica row name.
+			nameCell = lipgloss.NewStyle().Foreground(ColorPurple).Bold(true).Render(nameCell)
+		} else {
+			nameCell = LabelStyle.Render(nameCell)
+		}
+
+		roleCell := lipgloss.NewStyle().Foreground(ColorSubtext).Render(fmt.Sprintf("%-4s", role))
+		if n.Role == collector.RedisRolePrimary {
+			roleCell = lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render(fmt.Sprintf("%-4s", role))
+		}
+
+		cpuCell := lipgloss.NewStyle().Foreground(cpuColor(n.EngineCPU, cpuWarn, cpuCrit)).Bold(true).
+			Render(fmt.Sprintf("%5.1f%%", n.EngineCPU))
+		connCell := ValueStyle.Render(fmt.Sprintf("%6s", FormatNum(n.Connections)))
+		getCell := lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("%7s", FormatNum(n.GetTypeCmds)))
+		evictCell := lipgloss.NewStyle().Foreground(evictColor(n.Evictions, evictWarn, evictCrit)).Bold(true).
+			Render(fmt.Sprintf("%6s", FormatNum(n.Evictions)))
+
+		lines = append(lines, fmt.Sprintf("%s %s %s %s %s %s", nameCell, roleCell, cpuCell, connCell, getCell, evictCell))
+	}
+
+	if hottestIdx >= 0 {
+		lines = append(lines, "",
+			lipgloss.NewStyle().Foreground(ColorPurple).Render("◆ hottest replica: ")+
+				ValueStyle.Render(fmt.Sprintf("%.1f%% eCPU", hottestCPU)))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// cpuColor returns green/yellow/red for a CPU percentage against warn/crit thresholds.
+func cpuColor(pct, warn, crit float64) lipgloss.Color {
+	switch {
+	case crit > 0 && pct >= crit:
+		return ColorRed
+	case warn > 0 && pct >= warn:
+		return ColorYellow
+	default:
+		return ColorGreen
+	}
+}
+
+// evictColor returns green/yellow/red for an eviction count against warn/crit thresholds.
+func evictColor(evictions, warn, crit float64) lipgloss.Color {
+	switch {
+	case crit > 0 && evictions >= crit:
+		return ColorRed
+	case warn > 0 && evictions >= warn:
+		return ColorYellow
+	case evictions > 0:
+		return ColorYellow
+	default:
+		return ColorGreen
+	}
 }
 
 func renderALB(w, h int, a collector.ALBMetrics, ts *collector.TimeSeries) string {

@@ -11,6 +11,10 @@ import (
 	cwtypes "github.com/aws/aws-sdk-go-v2/service/cloudwatch/types"
 )
 
+// redisMetricsPerNode is the number of CloudWatch queries issued per ElastiCache node.
+// Must match the addQuery calls in the per-node loop in Collect().
+const redisMetricsPerNode = 8
+
 // MSKConsumerGroupConfig pairs a Kafka consumer group with its topic for CloudWatch queries.
 type MSKConsumerGroupConfig struct {
 	Group string
@@ -24,12 +28,13 @@ type CloudWatchCollector struct {
 	docdbName         string
 	rdsID             string
 	redisNodes        []string
+	redisRoles        map[string]string // node ID -> "primary"/"replica" (from replication group)
 	albNames          []string
 	mskClusterName    string
 	mskConsumerGroups []MSKConsumerGroupConfig
 }
 
-func NewCloudWatchCollector(region, docdbID, docdbName, rdsID string, redisNodes, albNames []string, mskClusterName, mskAWSProfile string, mskConsumerGroups []MSKConsumerGroupConfig) (*CloudWatchCollector, error) {
+func NewCloudWatchCollector(region, docdbID, docdbName, rdsID string, redisNodes, albNames []string, redisRoles map[string]string, mskClusterName, mskAWSProfile string, mskConsumerGroups []MSKConsumerGroupConfig) (*CloudWatchCollector, error) {
 	cfg, err := config.LoadDefaultConfig(context.Background(), config.WithRegion(region))
 	if err != nil {
 		return nil, fmt.Errorf("loading AWS config: %w", err)
@@ -42,6 +47,7 @@ func NewCloudWatchCollector(region, docdbID, docdbName, rdsID string, redisNodes
 		docdbName:         docdbName,
 		rdsID:             rdsID,
 		redisNodes:        redisNodes,
+		redisRoles:        redisRoles,
 		albNames:          albNames,
 		mskClusterName:    mskClusterName,
 		mskConsumerGroups: mskConsumerGroups,
@@ -114,16 +120,17 @@ func (c *CloudWatchCollector) Collect() CloudWatchSnapshot {
 	addQuery("rds_riops", "AWS/RDS", "ReadIOPS", "Average", rdsDims)
 	addQuery("rds_wiops", "AWS/RDS", "WriteIOPS", "Average", rdsDims)
 
-	// ElastiCache metrics per node
+	// ElastiCache metrics per node (8 queries each — keep redisMetricsPerNode in sync)
 	for _, node := range c.redisNodes {
 		dims := []cwtypes.Dimension{{Name: aws.String("CacheClusterId"), Value: aws.String(node)}}
 		addQuery("redis_cpu_"+node, "AWS/ElastiCache", "CPUUtilization", "Average", dims)
+		addQuery("redis_ecpu_"+node, "AWS/ElastiCache", "EngineCPUUtilization", "Maximum", dims)
 		addQuery("redis_mem_"+node, "AWS/ElastiCache", "DatabaseMemoryUsagePercentage", "Average", dims)
 		addQuery("redis_hit_"+node, "AWS/ElastiCache", "CacheHitRate", "Average", dims)
 		addQuery("redis_evict_"+node, "AWS/ElastiCache", "Evictions", "Sum", dims)
 		addQuery("redis_conn_"+node, "AWS/ElastiCache", "CurrConnections", "Average", dims)
-		addQuery("redis_get_"+node, "AWS/ElastiCache", "GetTypeCmds", "Average", dims)
-		addQuery("redis_set_"+node, "AWS/ElastiCache", "SetTypeCmds", "Average", dims)
+		addQuery("redis_get_"+node, "AWS/ElastiCache", "GetTypeCmds", "Sum", dims)
+		addQuery("redis_set_"+node, "AWS/ElastiCache", "SetTypeCmds", "Sum", dims)
 	}
 
 	// ALB metrics
@@ -191,24 +198,26 @@ func (c *CloudWatchCollector) Collect() CloudWatchSnapshot {
 		WriteIOPS:    get(17),
 	}
 
-	// Redis (7 metrics per node: starting at index 18)
+	// Redis (redisMetricsPerNode metrics per node: starting at index 18)
 	base := 18
 	for i, node := range c.redisNodes {
-		offset := base + i*7
+		offset := base + i*redisMetricsPerNode
 		snap.Redis = append(snap.Redis, RedisNodeMetrics{
 			NodeID:        node,
+			Role:          c.redisRoles[node],
 			CPUPercent:    get(offset),
-			MemoryPercent: get(offset + 1),
-			HitRate:       get(offset + 2),
-			Evictions:     get(offset + 3),
-			Connections:   get(offset + 4),
-			GetTypeCmds:   get(offset + 5),
-			SetTypeCmds:   get(offset + 6),
+			EngineCPU:     get(offset + 1),
+			MemoryPercent: get(offset + 2),
+			HitRate:       get(offset + 3),
+			Evictions:     get(offset + 4),
+			Connections:   get(offset + 5),
+			GetTypeCmds:   get(offset + 6),
+			SetTypeCmds:   get(offset + 7),
 		})
 	}
 
 	// ALB — aggregate across all ALBs: sum counters, max of P99
-	albBase := base + len(c.redisNodes)*7
+	albBase := base + len(c.redisNodes)*redisMetricsPerNode
 	for i := range c.albNames {
 		offset := albBase + i*4
 		p99 := get(offset)

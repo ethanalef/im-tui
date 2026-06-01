@@ -110,6 +110,10 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 		LocustURL:          cfg.Locust.URL,
 		LocustInterval:     cfg.Locust.Interval,
 		LogInterval:        cfg.Logs.Interval,
+		RedisCPUWarn:       cfg.Thresholds.RedisCPUWarn,
+		RedisCPUCrit:       cfg.Thresholds.RedisCPUCrit,
+		RedisEvictWarn:     cfg.Thresholds.RedisEvictWarn,
+		RedisEvictCrit:     cfg.Thresholds.RedisEvictCrit,
 	}
 
 	// Resolve Prometheus URL (may come from shared port-forward)
@@ -129,12 +133,27 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 	for _, cg := range cfg.AWS.MSK.ConsumerGroups {
 		mskCGs = append(mskCGs, collector.MSKConsumerGroupConfig{Group: cg.Group, Topic: cg.Topic})
 	}
+
+	// Discover Redis replication-group members + roles live (adapts to 1P4R/1P5R).
+	// Fall back to the static node list from config if discovery is empty/unavailable.
+	redisTopo := collector.DiscoverRedisTopology(cfg.CloudWatch.Region, cfg.AWS.ElastiCache.ReplicationGroupID)
+	redisNodes := redisTopo.Nodes
+	redisRoles := redisTopo.Roles
+	if len(redisNodes) == 0 {
+		redisNodes = cfg.AWS.ElastiCache.Nodes
+		redisRoles = map[string]string{}
+	} else {
+		fmt.Fprintf(os.Stderr, "Discovered %d Redis node(s) in %s for %s\n",
+			len(redisNodes), cfg.AWS.ElastiCache.ReplicationGroupID, cfg.Environment)
+	}
+
 	cwColl, err := collector.NewCloudWatchCollector(
 		cfg.CloudWatch.Region,
 		cfg.AWS.DocDB.ClusterID, cfg.AWS.DocDB.ClusterName,
 		cfg.AWS.RDS.InstanceID,
-		cfg.AWS.ElastiCache.Nodes,
+		redisNodes,
 		cfg.AWS.ALB.LoadBalancers,
+		redisRoles,
 		cfg.AWS.MSK.ClusterName, cfg.AWS.MSK.AWSProfile, mskCGs,
 	)
 	if err != nil {
@@ -162,6 +181,8 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 		RDSDiskQueueCrit: cfg.Thresholds.RDSDiskQueueCrit,
 		RedisEvictWarn:   cfg.Thresholds.RedisEvictWarn,
 		RedisEvictCrit:   cfg.Thresholds.RedisEvictCrit,
+		RedisCPUWarn:     cfg.Thresholds.RedisCPUWarn,
+		RedisCPUCrit:     cfg.Thresholds.RedisCPUCrit,
 		GoroutineWarn:    cfg.Thresholds.GoroutineWarn,
 		GoroutineCrit:    cfg.Thresholds.GoroutineCrit,
 		KafkaLagWarn:     cfg.Thresholds.KafkaLagWarn,
@@ -224,7 +245,8 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 	infraSpecs := collector.FetchInfraSpecs(
 		cfg.CloudWatch.Region,
 		cfg.AWS.RDS.InstanceID,
-		cfg.AWS.ElastiCache.Nodes,
+		redisNodes,
+		redisRoles,
 		collector.DocDBSpec{
 			ShardCount:    cfg.AWS.DocDB.ShardCount,
 			ShardCapacity: cfg.AWS.DocDB.ShardCapacity,
@@ -307,7 +329,7 @@ func (a appModel) View() string {
 			m.TSE2EGroupP95, m.TSGatewayEncodeP95, m.TSTransferBatchP95,
 			m.ScrollPos)
 	case model.TabInfra:
-		content = view.RenderInfrastructure(w, contentH, m.CWSnapshot, m.InfraSpecs, m.TSDocDBCPU, m.TSRdsCPU, m.TSAlbRT, m.ScrollPos)
+		content = view.RenderInfrastructure(w, contentH, m.CWSnapshot, m.InfraSpecs, m.TSDocDBCPU, m.TSRdsCPU, m.TSAlbRT, m.Config.RedisCPUWarn, m.Config.RedisCPUCrit, m.Config.RedisEvictWarn, m.Config.RedisEvictCrit, m.ScrollPos)
 	case model.TabKubernetes:
 		content = view.RenderKubernetes(w, contentH, m.K8sSnapshot, m.ScrollPos)
 	case model.TabLocust:

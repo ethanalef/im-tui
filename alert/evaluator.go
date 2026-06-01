@@ -41,6 +41,8 @@ type Thresholds struct {
 	RDSDiskQueueCrit float64
 	RedisEvictWarn   float64
 	RedisEvictCrit   float64
+	RedisCPUWarn     float64 // EngineCPU% warning
+	RedisCPUCrit     float64 // EngineCPU% critical
 	GoroutineWarn    float64
 	GoroutineCrit    float64
 	KafkaLagWarn     float64
@@ -167,12 +169,25 @@ func (e *Evaluator) Evaluate(
 			alerts = append(alerts, Alert{LevelWarning, "RDS Disk Queue", fmt.Sprintf("%.1f", cw.RDS.DiskQueue), "RDS disk queue depth elevated", now})
 		}
 
-		// Redis per-node
+		// Redis per-node — alert on EngineCPU (Redis main-thread CPU = the real
+		// bottleneck) using Redis-specific thresholds, falling back to generic CPU.
+		redisCPUWarn := e.thresholds.RedisCPUWarn
+		if redisCPUWarn == 0 {
+			redisCPUWarn = e.thresholds.CPUWarn
+		}
+		redisCPUCrit := e.thresholds.RedisCPUCrit
+		if redisCPUCrit == 0 {
+			redisCPUCrit = e.thresholds.CPUCrit
+		}
 		for _, r := range cw.Redis {
-			if r.CPUPercent >= e.thresholds.CPUCrit {
-				alerts = append(alerts, Alert{LevelCritical, "Redis CPU " + r.NodeID, fmt.Sprintf("%.1f%%", r.CPUPercent), "Redis CPU critical", now})
-			} else if r.CPUPercent >= e.thresholds.CPUWarn {
-				alerts = append(alerts, Alert{LevelWarning, "Redis CPU " + r.NodeID, fmt.Sprintf("%.1f%%", r.CPUPercent), "Redis CPU elevated", now})
+			label := "Redis EngineCPU " + r.NodeID
+			if r.Role != "" {
+				label += " (" + r.Role + ")"
+			}
+			if redisCPUCrit > 0 && r.EngineCPU >= redisCPUCrit {
+				alerts = append(alerts, Alert{LevelCritical, label, fmt.Sprintf("%.1f%%", r.EngineCPU), "Redis engine CPU critical", now})
+			} else if redisCPUWarn > 0 && r.EngineCPU >= redisCPUWarn {
+				alerts = append(alerts, Alert{LevelWarning, label, fmt.Sprintf("%.1f%%", r.EngineCPU), "Redis engine CPU elevated", now})
 			}
 
 			// Redis memory

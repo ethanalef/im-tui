@@ -89,7 +89,11 @@ type RDSConfig struct {
 }
 
 type ElastiCacheConfig struct {
-	Nodes []string `yaml:"nodes"`
+	// ReplicationGroupID, when set, discovers member nodes + roles live via
+	// DescribeReplicationGroups (adapts to 1P4R / 1P5R automatically).
+	// Nodes is used as a static fallback when discovery is empty or fails.
+	ReplicationGroupID string   `yaml:"replication_group_id"`
+	Nodes              []string `yaml:"nodes"`
 }
 
 type ALBConfig struct {
@@ -118,6 +122,8 @@ type ThresholdConfig struct {
 	// ElastiCache Redis
 	RedisEvictWarn float64 `yaml:"redis_evict_warn"`
 	RedisEvictCrit float64 `yaml:"redis_evict_crit"`
+	RedisCPUWarn   float64 `yaml:"redis_cpu_warn"` // EngineCPU% warning (default 70)
+	RedisCPUCrit   float64 `yaml:"redis_cpu_crit"` // EngineCPU% critical (default 85)
 
 	// Goroutines
 	GoroutineWarn float64 `yaml:"goroutine_warn"`
@@ -185,6 +191,19 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.SparklineCap == 0 {
 		cfg.SparklineCap = 60
+	}
+
+	// ElastiCache: discovery is opt-in per environment via replication_group_id.
+	// (No global default — each env points at a different cache cluster. PROD sets
+	//  replication_group_id: im-cache-prod-fallback-20260330 in config-prod.yaml.)
+	// When unset, the static `nodes` list is used as-is.
+
+	// Redis EngineCPU thresholds (percent)
+	if cfg.Thresholds.RedisCPUWarn == 0 {
+		cfg.Thresholds.RedisCPUWarn = 70
+	}
+	if cfg.Thresholds.RedisCPUCrit == 0 {
+		cfg.Thresholds.RedisCPUCrit = 85
 	}
 
 	// Export defaults

@@ -74,6 +74,12 @@ type Config struct {
 	LocustInterval time.Duration
 
 	LogInterval time.Duration
+
+	// Redis thresholds for coloring the per-node Infra panel.
+	RedisCPUWarn   float64 // EngineCPU% warning
+	RedisCPUCrit   float64 // EngineCPU% critical
+	RedisEvictWarn float64 // evictions/min warning
+	RedisEvictCrit float64 // evictions/min critical
 }
 
 // Model is the root Bubble Tea model.

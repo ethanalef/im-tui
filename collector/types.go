@@ -172,7 +172,9 @@ type RDSMetrics struct {
 
 type RedisNodeMetrics struct {
 	NodeID        string
-	CPUPercent    float64
+	Role          string  // "primary" or "replica" (from replication group topology)
+	CPUPercent    float64 // CPUUtilization (whole-host, includes background work)
+	EngineCPU     float64 // EngineCPUUtilization Maximum (Redis main-thread CPU — the real bottleneck)
 	MemoryPercent float64
 	HitRate       float64
 	Evictions     float64
@@ -253,6 +255,7 @@ type RDSSpec struct {
 
 type RedisNodeSpec struct {
 	NodeID        string
+	Role          string // "primary" or "replica" (from replication group topology)
 	NodeType      string
 	Engine        string
 	EngineVersion string
