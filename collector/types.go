@@ -126,12 +126,13 @@ type PodMetric struct {
 
 // CloudWatchSnapshot holds all AWS metrics.
 type CloudWatchSnapshot struct {
-	DocDB DocDBMetrics
-	RDS   RDSMetrics
-	Redis []RedisNodeMetrics
-	ALB   ALBMetrics
-	MSK   MSKMetrics
-	Err   error
+	DocDB       DocDBMetrics
+	DocDBShards []DocDBMetrics
+	RDS         RDSMetrics
+	Redis       []RedisNodeMetrics
+	ALB         ALBMetrics
+	MSK         MSKMetrics
+	Err         error
 }
 
 // MSKMetrics holds Kafka consumer group lag from CloudWatch.
@@ -147,7 +148,11 @@ type ConsumerGroupLag struct {
 }
 
 type DocDBMetrics struct {
+	ShardID         string
 	CPUPercent      float64
+	PrimaryFreeMem  float64 // PrimaryInstanceFreeableMemory
+	ReplicaCPU      float64 // ReplicaInstanceCPUUtilization
+	ReplicaFreeMem  float64 // ReplicaInstanceFreeableMemory
 	Connections     float64
 	VolumeUsed      float64 // bytes
 	InsertOps       float64
@@ -155,8 +160,16 @@ type DocDBMetrics struct {
 	UpdateOps       float64
 	DeleteOps       float64
 	CursorsTimedOut float64 // DatabaseCursorsTimedOut
-	ReadIOPS        float64 // ReadIOPS
-	WriteIOPS       float64 // WriteIOPS
+	ReadIOPS        float64 // VolumeReadIOPs for DocDB Elastic
+	WriteIOPS       float64 // VolumeWriteIOPs for DocDB Elastic
+	ReplicaLagMS    float64 // DBInstanceReplicaLag
+	HasDocumentOps  bool
+	HasReadIOPS     bool
+	HasWriteIOPS    bool
+	HasReplicaLag   bool
+	HasPrimaryFree  bool
+	HasReplicaCPU   bool
+	HasReplicaFree  bool
 }
 
 type RDSMetrics struct {
@@ -171,16 +184,18 @@ type RDSMetrics struct {
 }
 
 type RedisNodeMetrics struct {
-	NodeID        string
-	Role          string  // "primary" or "replica" (from replication group topology)
-	CPUPercent    float64 // CPUUtilization (whole-host, includes background work)
-	EngineCPU     float64 // EngineCPUUtilization Maximum (Redis main-thread CPU — the real bottleneck)
-	MemoryPercent float64
-	HitRate       float64
-	Evictions     float64
-	Connections   float64
-	GetTypeCmds   float64 // GetTypeCmds (read ops/sec)
-	SetTypeCmds   float64 // SetTypeCmds (write ops/sec)
+	NodeID            string
+	Role              string  // "primary" or "replica" (from replication group topology)
+	CPUPercent        float64 // CPUUtilization (whole-host, includes background work)
+	EngineCPU         float64 // EngineCPUUtilization Maximum (Redis main-thread CPU — the real bottleneck)
+	MemoryPercent     float64
+	HitRate           float64
+	Evictions         float64
+	Connections       float64
+	GetTypeCmds       float64 // GetTypeCmds (read ops/sec)
+	SetTypeCmds       float64 // SetTypeCmds (write ops/sec)
+	ReplicationLag    float64 // ReplicationLag
+	HasReplicationLag bool
 }
 
 type ALBMetrics struct {

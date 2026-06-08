@@ -27,7 +27,7 @@ func RenderInfrastructure(width, height int, cw *collector.CloudWatchSnapshot, s
 	botH := height - 2 - topH
 
 	// Top-left: DocumentDB
-	docdbContent := renderDocDB(halfW-2, topH-2, cw.DocDB, specs.DocDB, tsDocDBCPU)
+	docdbContent := renderDocDB(halfW-2, topH-2, cw.DocDB, cw.DocDBShards, specs.DocDB, tsDocDBCPU, scrollPos)
 	docdbPanel := Panel("DocumentDB", docdbContent, halfW, topH)
 
 	// Top-right: RDS MySQL
@@ -48,7 +48,7 @@ func RenderInfrastructure(width, height int, cw *collector.CloudWatchSnapshot, s
 	return lipgloss.JoinVertical(lipgloss.Left, topRow, botRow)
 }
 
-func renderDocDB(w, h int, d collector.DocDBMetrics, spec collector.DocDBSpec, ts *collector.TimeSeries) string {
+func renderDocDB(w, h int, d collector.DocDBMetrics, shards []collector.DocDBMetrics, spec collector.DocDBSpec, ts *collector.TimeSeries, scrollPos int) string {
 	barW := w - 20
 	if barW < 8 {
 		barW = 8
@@ -69,29 +69,185 @@ func renderDocDB(w, h int, d collector.DocDBMetrics, spec collector.DocDBSpec, t
 	if specLine := collector.FormatDocDBSpec(spec); specLine != "" {
 		lines = append(lines, lipgloss.NewStyle().Foreground(ColorSubtext).Render(specLine))
 	}
-	lines = append(lines,
-		ProgressBarLabeled("CPU   ", d.CPUPercent, barW, w),
-		"",
-		LabelStyle.Render("Connections: ") + lipgloss.NewStyle().Foreground(connColor).Bold(true).Render(fmt.Sprintf("%.0f", d.Connections)),
-		LabelStyle.Render("Volume:      ") + ValueStyle.Render(FormatBytes(d.VolumeUsed)),
-		LabelStyle.Render("Cursors T/O: ") + cursorValue(d.CursorsTimedOut),
-		"",
-		LabelStyle.Render("Ops/min: ") +
-			lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("I:%.0f ", d.InsertOps)) +
-			lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("Q:%.0f ", d.QueryOps)) +
-			lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("U:%.0f ", d.UpdateOps)) +
-			lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("D:%.0f", d.DeleteOps)),
-		LabelStyle.Render("IOPS: ") +
-			lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("R:%.0f ", d.ReadIOPS)) +
-			lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("W:%.0f ", d.WriteIOPS)) +
-			LabelStyle.Render("Total: ") + ValueStyle.Render(fmt.Sprintf("%.0f", d.ReadIOPS+d.WriteIOPS)),
-	)
+	if len(shards) > 0 {
+		lines = append(lines,
+			ProgressBarLabeled("CPU   ", d.CPUPercent, barW, w),
+			LabelStyle.Render("Conn: ")+lipgloss.NewStyle().Foreground(connColor).Bold(true).Render(fmt.Sprintf("%.0f", d.Connections))+
+				LabelStyle.Render("  Vol: ")+ValueStyle.Render(FormatBytes(d.VolumeUsed))+
+				LabelStyle.Render("  Cur: ")+cursorValue(d.CursorsTimedOut),
+			renderDocDBOpsLine(d),
+			renderDocDBIOPSLine(d),
+		)
+	} else {
+		lines = append(lines,
+			ProgressBarLabeled("CPU   ", d.CPUPercent, barW, w),
+			"",
+			LabelStyle.Render("Connections: ")+lipgloss.NewStyle().Foreground(connColor).Bold(true).Render(fmt.Sprintf("%.0f", d.Connections)),
+			LabelStyle.Render("Volume:      ")+ValueStyle.Render(FormatBytes(d.VolumeUsed)),
+			LabelStyle.Render("Cursors T/O: ")+cursorValue(d.CursorsTimedOut),
+			"",
+			renderDocDBOpsLine(d),
+			renderDocDBIOPSLine(d),
+		)
+	}
 
-	if ts != nil && ts.Len() > 0 {
+	if len(shards) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, renderDocDBShardTable(w, h-len(lines), shards, scrollPos)...)
+	}
+
+	if ts != nil && ts.Len() > 0 && len(lines)+2 <= h {
 		lines = append(lines, "", LabelStyle.Render("CPU trend: ")+SparklineStr(ts.Values(), sparkW))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func renderDocDBOpsLine(d collector.DocDBMetrics) string {
+	return LabelStyle.Render("Ops/min: ") +
+		lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("I:%.0f ", d.InsertOps)) +
+		lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("Q:%.0f ", d.QueryOps)) +
+		lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("U:%.0f ", d.UpdateOps)) +
+		lipgloss.NewStyle().Foreground(ColorRed).Render(fmt.Sprintf("D:%.0f", d.DeleteOps))
+}
+
+func renderDocDBIOPSLine(d collector.DocDBMetrics) string {
+	if !d.HasReadIOPS && !d.HasWriteIOPS {
+		return LabelStyle.Render("IOPS: ") +
+			lipgloss.NewStyle().Foreground(ColorCyan).Render("R:-- ") +
+			lipgloss.NewStyle().Foreground(ColorGreen).Render("W:-- ") +
+			LabelStyle.Render("Total: ") + ValueStyle.Render("--")
+	}
+	return LabelStyle.Render("IOPS: ") +
+		lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("R:%.0f ", d.ReadIOPS)) +
+		lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("W:%.0f ", d.WriteIOPS)) +
+		LabelStyle.Render("Total: ") + ValueStyle.Render(fmt.Sprintf("%.0f", d.ReadIOPS+d.WriteIOPS))
+}
+
+func renderDocDBShardTable(w, h int, shards []collector.DocDBMetrics, scrollPos int) []string {
+	if h <= 0 {
+		return nil
+	}
+
+	rows := docDBShardInstanceRows(shards)
+	visibleRows := h - 1 // header
+	if len(rows) > visibleRows {
+		visibleRows-- // scroll indicator
+	}
+	if visibleRows < 1 {
+		visibleRows = 1
+	}
+	if visibleRows > len(rows) {
+		visibleRows = len(rows)
+	}
+
+	maxScroll := len(rows) - visibleRows
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if scrollPos > maxScroll {
+		scrollPos = maxScroll
+	}
+	if scrollPos < 0 {
+		scrollPos = 0
+	}
+
+	endIdx := scrollPos + visibleRows
+	if endIdx > len(rows) {
+		endIdx = len(rows)
+	}
+
+	var lines []string
+	header := fmt.Sprintf("%-8s %-6s %6s %8s %7s", "shard", "role", "cpu", "free", "lag")
+	lines = append(lines, lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render(header))
+	lines = append(lines, rows[scrollPos:endIdx]...)
+	if len(rows) > visibleRows {
+		lines = append(lines, LabelStyle.Render(fmt.Sprintf("[%d-%d of %d]", scrollPos+1, endIdx, len(rows))))
+	}
+
+	return lines
+}
+
+func docDBShardInstanceRows(shards []collector.DocDBMetrics) []string {
+	var rows []string
+	for _, s := range shards {
+		shardID := shortShardID(s.ShardID)
+		rows = append(rows,
+			fmt.Sprintf("%-8s %-6s %s %s %s",
+				shardID,
+				"PRI",
+				docDBCPUCell(s.CPUPercent),
+				docDBMemoryCell(s.PrimaryFreeMem, s.HasPrimaryFree),
+				fmt.Sprintf("%7s", "--"),
+			),
+			fmt.Sprintf("%-8s %-6s %s %s %s",
+				shardID,
+				"REPavg",
+				docDBMaybeCPUCell(s.ReplicaCPU, s.HasReplicaCPU),
+				docDBMemoryCell(s.ReplicaFreeMem, s.HasReplicaFree),
+				docDBReplicaLagCell(s),
+			),
+		)
+	}
+	return rows
+}
+
+func shortShardID(shardID string) string {
+	if shardID == "" {
+		return "-"
+	}
+	if len(shardID) > 8 {
+		return shardID[:8]
+	}
+	return shardID
+}
+
+func docDBDocsCell(d collector.DocDBMetrics) string {
+	if !d.HasDocumentOps {
+		return fmt.Sprintf("%8s", "--")
+	}
+	return fmt.Sprintf("%8s", FormatNum(d.InsertOps+d.QueryOps+d.UpdateOps+d.DeleteOps))
+}
+
+func docDBIOPSCell(d collector.DocDBMetrics) string {
+	if !d.HasReadIOPS && !d.HasWriteIOPS {
+		return fmt.Sprintf("%7s", "--")
+	}
+	return fmt.Sprintf("%7s", FormatNum(d.ReadIOPS+d.WriteIOPS))
+}
+
+func docDBReplicaLagCell(d collector.DocDBMetrics) string {
+	if !d.HasReplicaLag {
+		return fmt.Sprintf("%7s", "--")
+	}
+	if d.ReplicaLagMS >= 1000 {
+		return fmt.Sprintf("%7s", fmt.Sprintf("%.1fs", d.ReplicaLagMS/1000))
+	}
+	return fmt.Sprintf("%7s", fmt.Sprintf("%.0fms", d.ReplicaLagMS))
+}
+
+func docDBMemoryCell(bytes float64, ok bool) string {
+	if !ok {
+		return fmt.Sprintf("%8s", "--")
+	}
+	return fmt.Sprintf("%8s", FormatBytes(bytes))
+}
+
+func docDBMaybeCPUCell(cpu float64, ok bool) string {
+	if !ok {
+		return fmt.Sprintf("%6s", "--")
+	}
+	return docDBCPUCell(cpu)
+}
+
+func docDBCPUCell(cpu float64) string {
+	color := ColorGreen
+	if cpu >= 80 {
+		color = ColorRed
+	} else if cpu >= 60 {
+		color = ColorYellow
+	}
+	return lipgloss.NewStyle().Foreground(color).Bold(true).Render(fmt.Sprintf("%5.1f%%", cpu))
 }
 
 func renderRDS(w, h int, r collector.RDSMetrics, spec collector.RDSSpec, ts *collector.TimeSeries) string {
@@ -111,17 +267,17 @@ func renderRDS(w, h int, r collector.RDSMetrics, spec collector.RDSSpec, ts *col
 	lines = append(lines,
 		ProgressBarLabeled("CPU   ", r.CPUPercent, barW, w),
 		"",
-		LabelStyle.Render("Connections: ") + ValueStyle.Render(fmt.Sprintf("%.0f", r.Connections)),
-		LabelStyle.Render("Free Memory: ") + ValueStyle.Render(FormatBytes(r.FreeMemory)),
+		LabelStyle.Render("Connections: ")+ValueStyle.Render(fmt.Sprintf("%.0f", r.Connections)),
+		LabelStyle.Render("Free Memory: ")+ValueStyle.Render(FormatBytes(r.FreeMemory)),
 		"",
-		LabelStyle.Render("Read Latency:  ") + formatLatency(r.ReadLatency),
-		LabelStyle.Render("Write Latency: ") + formatLatency(r.WriteLatency),
-		LabelStyle.Render("Disk Queue:    ") + ValueStyle.Render(fmt.Sprintf("%.1f", r.DiskQueue)),
+		LabelStyle.Render("Read Latency:  ")+formatLatency(r.ReadLatency),
+		LabelStyle.Render("Write Latency: ")+formatLatency(r.WriteLatency),
+		LabelStyle.Render("Disk Queue:    ")+ValueStyle.Render(fmt.Sprintf("%.1f", r.DiskQueue)),
 		"",
-		LabelStyle.Render("IOPS: ") +
-			lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("R:%.0f ", r.ReadIOPS)) +
-			lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("W:%.0f ", r.WriteIOPS)) +
-			LabelStyle.Render("Total: ") + ValueStyle.Render(fmt.Sprintf("%.0f", r.ReadIOPS+r.WriteIOPS)),
+		LabelStyle.Render("IOPS: ")+
+			lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("R:%.0f ", r.ReadIOPS))+
+			lipgloss.NewStyle().Foreground(ColorGreen).Render(fmt.Sprintf("W:%.0f ", r.WriteIOPS))+
+			LabelStyle.Render("Total: ")+ValueStyle.Render(fmt.Sprintf("%.0f", r.ReadIOPS+r.WriteIOPS)),
 	)
 
 	if ts != nil && ts.Len() > 0 {
@@ -159,8 +315,8 @@ func renderRedis(w, h int, nodes []collector.RedisNodeMetrics, nodeSpecs []colle
 		}
 	}
 
-	// Table header: node | role | eCPU% | conns | GETs | evict
-	header := fmt.Sprintf("%-14s %-4s %6s %6s %7s %6s", "node", "role", "eCPU", "conn", "GET", "evict")
+	// Table header: node | role | eCPU% | lag | conns | GETs | evict
+	header := fmt.Sprintf("%-14s %-4s %6s %7s %6s %7s %6s", "node", "role", "eCPU", "lag", "conn", "GET", "evict")
 	lines = append(lines, lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render(header))
 
 	for i, n := range nodes {
@@ -190,12 +346,13 @@ func renderRedis(w, h int, nodes []collector.RedisNodeMetrics, nodeSpecs []colle
 
 		cpuCell := lipgloss.NewStyle().Foreground(cpuColor(n.EngineCPU, cpuWarn, cpuCrit)).Bold(true).
 			Render(fmt.Sprintf("%5.1f%%", n.EngineCPU))
+		lagCell := redisLagCell(n)
 		connCell := ValueStyle.Render(fmt.Sprintf("%6s", FormatNum(n.Connections)))
 		getCell := lipgloss.NewStyle().Foreground(ColorCyan).Render(fmt.Sprintf("%7s", FormatNum(n.GetTypeCmds)))
 		evictCell := lipgloss.NewStyle().Foreground(evictColor(n.Evictions, evictWarn, evictCrit)).Bold(true).
 			Render(fmt.Sprintf("%6s", FormatNum(n.Evictions)))
 
-		lines = append(lines, fmt.Sprintf("%s %s %s %s %s %s", nameCell, roleCell, cpuCell, connCell, getCell, evictCell))
+		lines = append(lines, fmt.Sprintf("%s %s %s %s %s %s %s", nameCell, roleCell, cpuCell, lagCell, connCell, getCell, evictCell))
 	}
 
 	if hottestIdx >= 0 {
@@ -205,6 +362,29 @@ func renderRedis(w, h int, nodes []collector.RedisNodeMetrics, nodeSpecs []colle
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func redisLagCell(n collector.RedisNodeMetrics) string {
+	if !n.HasReplicationLag {
+		return LabelStyle.Render(fmt.Sprintf("%7s", "--"))
+	}
+
+	text := "0"
+	if n.ReplicationLag > 0 && n.ReplicationLag < 1 {
+		text = fmt.Sprintf("%.0fms", n.ReplicationLag*1000)
+	} else if n.ReplicationLag >= 1 && n.ReplicationLag < 10 {
+		text = fmt.Sprintf("%.1fs", n.ReplicationLag)
+	} else if n.ReplicationLag >= 10 {
+		text = fmt.Sprintf("%.0fs", n.ReplicationLag)
+	}
+
+	color := ColorGreen
+	if n.ReplicationLag >= 5 {
+		color = ColorRed
+	} else if n.ReplicationLag >= 1 {
+		color = ColorYellow
+	}
+	return lipgloss.NewStyle().Foreground(color).Bold(true).Render(fmt.Sprintf("%7s", text))
 }
 
 // cpuColor returns green/yellow/red for a CPU percentage against warn/crit thresholds.
