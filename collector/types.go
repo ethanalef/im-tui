@@ -239,8 +239,9 @@ type InfraSpecs struct {
 }
 
 type DocDBSpec struct {
-	ShardCount    int32
-	ShardCapacity int32 // vCPUs per shard
+	ShardCount         int32
+	ShardInstanceCount int32
+	ShardCapacity      int32 // vCPUs per shard
 }
 
 type RDSSpec struct {

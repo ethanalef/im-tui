@@ -19,10 +19,12 @@ type PortForward struct {
 	remotePort int
 	localPort  int
 
-	mu     sync.Mutex
-	cmd    *exec.Cmd
-	cancel context.CancelFunc
-	ready  bool
+	restartMu sync.Mutex
+	mu        sync.Mutex
+	cmd       *exec.Cmd
+	cancel    context.CancelFunc
+	done      chan error
+	ready     bool
 }
 
 // New creates a port-forward manager. localPort=0 means pick a free port.
@@ -43,55 +45,63 @@ func New(kubeconfig, namespace, service string, remotePort, localPort int) *Port
 // is accepting connections (or timeout).
 func (pf *PortForward) Start() error {
 	pf.mu.Lock()
-	defer pf.mu.Unlock()
-
 	if pf.cmd != nil {
-		return nil // already running
+		select {
+		case <-pf.done:
+			pf.cmd = nil
+			pf.cancel = nil
+			pf.done = nil
+			pf.ready = false
+		default:
+			pf.mu.Unlock()
+			return nil // already running
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	pf.cancel = cancel
-
-	mapping := fmt.Sprintf("%d:%d", pf.localPort, pf.remotePort)
-	pf.cmd = exec.CommandContext(ctx, "kubectl",
+	cmd := exec.CommandContext(ctx, "kubectl",
 		"--kubeconfig", pf.kubeconfig,
 		"port-forward",
 		"-n", pf.namespace,
 		pf.service,
-		mapping,
+		fmt.Sprintf("%d:%d", pf.localPort, pf.remotePort),
 	)
 
-	// Capture stderr for diagnostics
 	var stderr bytes.Buffer
-	pf.cmd.Stderr = &stderr
+	cmd.Stderr = &stderr
 
-	// Start in background
-	if err := pf.cmd.Start(); err != nil {
-		pf.cmd = nil
+	if err := cmd.Start(); err != nil {
 		cancel()
+		pf.mu.Unlock()
 		return fmt.Errorf("starting port-forward: %w", err)
 	}
 
-	// Monitor process exit in background
 	exited := make(chan error, 1)
 	go func() {
-		exited <- pf.cmd.Wait()
+		exited <- cmd.Wait()
 	}()
 
-	// Wait for local port to be reachable
+	pf.cmd = cmd
+	pf.cancel = cancel
+	pf.done = exited
+	pf.ready = false
+	pf.mu.Unlock()
+
 	addr := fmt.Sprintf("127.0.0.1:%d", pf.localPort)
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 		if err == nil {
 			conn.Close()
+			pf.mu.Lock()
 			pf.ready = true
+			pf.mu.Unlock()
 			return nil
 		}
 
-		// Check if process exited early
 		select {
 		case waitErr := <-exited:
+			pf.clearIfCurrent(cmd)
 			errMsg := strings.TrimSpace(stderr.String())
 			if errMsg != "" {
 				return fmt.Errorf("port-forward exited: %s", errMsg)
@@ -106,13 +116,12 @@ func (pf *PortForward) Start() error {
 		time.Sleep(200 * time.Millisecond)
 	}
 
-	// Timed out - kill and cleanup (already holding mu, so inline Stop logic)
-	if pf.cancel != nil {
-		pf.cancel()
+	cancel()
+	if cmd.Process != nil {
+		_ = cmd.Process.Kill()
 	}
-	<-exited // wait for goroutine to finish
-	pf.cmd = nil
-	pf.ready = false
+	<-exited
+	pf.clearIfCurrent(cmd)
 	errMsg := strings.TrimSpace(stderr.String())
 	if errMsg != "" {
 		return fmt.Errorf("port-forward to %s timed out: %s", pf.service, errMsg)
@@ -123,17 +132,34 @@ func (pf *PortForward) Start() error {
 // Stop kills the port-forward subprocess.
 func (pf *PortForward) Stop() {
 	pf.mu.Lock()
-	defer pf.mu.Unlock()
+	cmd := pf.cmd
+	cancel := pf.cancel
+	done := pf.done
 
-	if pf.cancel != nil {
-		pf.cancel()
+	if cancel != nil {
+		cancel()
 	}
-	if pf.cmd != nil && pf.cmd.Process != nil {
-		pf.cmd.Process.Kill()
-		pf.cmd.Wait()
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
 	}
-	pf.cmd = nil
-	pf.ready = false
+	pf.mu.Unlock()
+
+	if done != nil {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
+	}
+
+	pf.clearIfCurrent(cmd)
+}
+
+// Restart recreates the subprocess on the same local port.
+func (pf *PortForward) Restart() error {
+	pf.restartMu.Lock()
+	defer pf.restartMu.Unlock()
+	pf.Stop()
+	return pf.Start()
 }
 
 // LocalURL returns the local URL to connect to.
@@ -151,6 +177,18 @@ func (pf *PortForward) IsReady() bool {
 	pf.mu.Lock()
 	defer pf.mu.Unlock()
 	return pf.ready
+}
+
+func (pf *PortForward) clearIfCurrent(cmd *exec.Cmd) {
+	pf.mu.Lock()
+	defer pf.mu.Unlock()
+	if pf.cmd != cmd {
+		return
+	}
+	pf.cmd = nil
+	pf.cancel = nil
+	pf.done = nil
+	pf.ready = false
 }
 
 func findFreePort() int {

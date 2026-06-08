@@ -126,6 +126,9 @@ func FormatDocDBSpec(s DocDBSpec) string {
 	if s.ShardCapacity == 0 {
 		return ""
 	}
+	if s.ShardInstanceCount > 0 {
+		return fmt.Sprintf("%d shard(s) x %d instance(s) x %d vCPU", s.ShardCount, s.ShardInstanceCount, s.ShardCapacity)
+	}
 	return fmt.Sprintf("%d shard(s) x %d vCPU", s.ShardCount, s.ShardCapacity)
 }
 

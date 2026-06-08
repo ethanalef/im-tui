@@ -25,6 +25,8 @@ func connStatus(err error) string {
 		strings.Contains(msg, "no such host") ||
 		strings.Contains(msg, "dial tcp") ||
 		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "EOF") ||
 		strings.Contains(msg, "context deadline exceeded") {
 		return "off"
 	}

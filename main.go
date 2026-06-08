@@ -42,6 +42,7 @@ func main() {
 
 	// Start Prometheus port-forwards (deduplicated by service key)
 	promResolved := map[promKey]string{}
+	promRecoverers := map[promKey]func() error{}
 	var promPFs []*portforward.PortForward
 
 	for _, cfg := range configs {
@@ -61,6 +62,7 @@ func main() {
 		} else {
 			url := pf.LocalURL()
 			promResolved[pk] = url
+			promRecoverers[pk] = pf.Restart
 			promPFs = append(promPFs, pf)
 			fmt.Fprintf(os.Stderr, "Prometheus available at %s\n", url)
 		}
@@ -72,7 +74,7 @@ func main() {
 	// Build environment bundles
 	var envs []model.EnvBundle
 	for _, cfg := range configs {
-		envs = append(envs, buildEnv(cfg, promResolved))
+		envs = append(envs, buildEnv(cfg, promResolved, promRecoverers))
 	}
 	for _, env := range envs {
 		if env.Exporter != nil {
@@ -97,7 +99,7 @@ func main() {
 	}
 }
 
-func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
+func buildEnv(cfg *Config, promResolved map[promKey]string, promRecoverers map[promKey]func() error) model.EnvBundle {
 	mcfg := model.Config{
 		Namespace:          cfg.Namespace,
 		Environment:        cfg.Environment,
@@ -118,15 +120,17 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 
 	// Resolve Prometheus URL (may come from shared port-forward)
 	promURL := cfg.Prometheus.URL
+	var promRecover func() error
 	if promURL == "" && cfg.Prometheus.Service != "" {
 		pk := promKey{expandHome(cfg.Kubeconfig), cfg.Prometheus.Namespace, cfg.Prometheus.Service, cfg.Prometheus.Port}
 		promURL = promResolved[pk]
+		promRecover = promRecoverers[pk]
 	}
 	mcfg.PrometheusURL = promURL
 
 	var promColl *collector.PrometheusCollector
 	if promURL != "" {
-		promColl = collector.NewPrometheusCollector(promURL)
+		promColl = collector.NewPrometheusCollector(promURL, promRecover)
 	}
 
 	var mskCGs []collector.MSKConsumerGroupConfig
@@ -166,27 +170,27 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 	logColl := collector.NewLogCollector(expandHome(cfg.Kubeconfig), cfg.Namespace, cfg.Logs.Services, cfg.Logs.SinceSec)
 
 	evaluator := alert.NewEvaluator(alert.Thresholds{
-		CPUWarn:          cfg.Thresholds.CPUWarn,
-		CPUCrit:          cfg.Thresholds.CPUCrit,
-		MemoryWarn:       cfg.Thresholds.MemoryWarn,
-		Error5XXWarn:     cfg.Thresholds.Error5XXWarn,
-		PodRestartCrit:   cfg.Thresholds.PodRestartCrit,
-		LocustFailWarn:   cfg.Thresholds.LocustFailWarn,
-		ResponseTimeWarn: cfg.Thresholds.ResponseTimeWarn,
-		DocDBConnWarn:    cfg.Thresholds.DocDBConnWarn,
-		DocDBConnCrit:    cfg.Thresholds.DocDBConnCrit,
-		RDSLatencyWarnMs: cfg.Thresholds.RDSLatencyWarnMs,
-		RDSLatencyCritMs: cfg.Thresholds.RDSLatencyCritMs,
-		RDSDiskQueueWarn: cfg.Thresholds.RDSDiskQueueWarn,
-		RDSDiskQueueCrit: cfg.Thresholds.RDSDiskQueueCrit,
-		RedisEvictWarn:   cfg.Thresholds.RedisEvictWarn,
-		RedisEvictCrit:   cfg.Thresholds.RedisEvictCrit,
-		RedisCPUWarn:     cfg.Thresholds.RedisCPUWarn,
-		RedisCPUCrit:     cfg.Thresholds.RedisCPUCrit,
-		GoroutineWarn:    cfg.Thresholds.GoroutineWarn,
-		GoroutineCrit:    cfg.Thresholds.GoroutineCrit,
-		KafkaLagWarn:     cfg.Thresholds.KafkaLagWarn,
-		KafkaLagCrit:     cfg.Thresholds.KafkaLagCrit,
+		CPUWarn:            cfg.Thresholds.CPUWarn,
+		CPUCrit:            cfg.Thresholds.CPUCrit,
+		MemoryWarn:         cfg.Thresholds.MemoryWarn,
+		Error5XXWarn:       cfg.Thresholds.Error5XXWarn,
+		PodRestartCrit:     cfg.Thresholds.PodRestartCrit,
+		LocustFailWarn:     cfg.Thresholds.LocustFailWarn,
+		ResponseTimeWarn:   cfg.Thresholds.ResponseTimeWarn,
+		DocDBConnWarn:      cfg.Thresholds.DocDBConnWarn,
+		DocDBConnCrit:      cfg.Thresholds.DocDBConnCrit,
+		RDSLatencyWarnMs:   cfg.Thresholds.RDSLatencyWarnMs,
+		RDSLatencyCritMs:   cfg.Thresholds.RDSLatencyCritMs,
+		RDSDiskQueueWarn:   cfg.Thresholds.RDSDiskQueueWarn,
+		RDSDiskQueueCrit:   cfg.Thresholds.RDSDiskQueueCrit,
+		RedisEvictWarn:     cfg.Thresholds.RedisEvictWarn,
+		RedisEvictCrit:     cfg.Thresholds.RedisEvictCrit,
+		RedisCPUWarn:       cfg.Thresholds.RedisCPUWarn,
+		RedisCPUCrit:       cfg.Thresholds.RedisCPUCrit,
+		GoroutineWarn:      cfg.Thresholds.GoroutineWarn,
+		GoroutineCrit:      cfg.Thresholds.GoroutineCrit,
+		KafkaLagWarn:       cfg.Thresholds.KafkaLagWarn,
+		KafkaLagCrit:       cfg.Thresholds.KafkaLagCrit,
 		E2EGroupWarnS:      cfg.Thresholds.E2EGroupWarnS,
 		E2EGroupCritS:      cfg.Thresholds.E2EGroupCritS,
 		E2ESingleWarnS:     cfg.Thresholds.E2ESingleWarnS,
@@ -248,8 +252,9 @@ func buildEnv(cfg *Config, promResolved map[promKey]string) model.EnvBundle {
 		redisNodes,
 		redisRoles,
 		collector.DocDBSpec{
-			ShardCount:    cfg.AWS.DocDB.ShardCount,
-			ShardCapacity: cfg.AWS.DocDB.ShardCapacity,
+			ShardCount:         cfg.AWS.DocDB.ShardCount,
+			ShardInstanceCount: cfg.AWS.DocDB.ShardInstanceCount,
+			ShardCapacity:      cfg.AWS.DocDB.ShardCapacity,
 		},
 	)
 
