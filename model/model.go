@@ -63,6 +63,7 @@ type Config struct {
 	Environment  string
 	Kubeconfig   string
 	SparklineCap int
+	Capacity     CapacityConfig
 
 	PrometheusURL      string
 	PrometheusInterval time.Duration
@@ -82,6 +83,12 @@ type Config struct {
 	RedisCPUCrit   float64 // EngineCPU% critical
 	RedisEvictWarn float64 // evictions/min warning
 	RedisEvictCrit float64 // evictions/min critical
+}
+
+type CapacityConfig struct {
+	MaxOnlineUsers            float64
+	MaxInboundMsgPerSec       float64
+	MaxBackendFanoutMsgPerSec float64
 }
 
 // Model is the root Bubble Tea model.

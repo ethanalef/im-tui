@@ -19,8 +19,15 @@ type Config struct {
 	Logs         LogConfig        `yaml:"logs"`
 	AWS          AWSConfig        `yaml:"aws"`
 	Thresholds   ThresholdConfig  `yaml:"thresholds"`
+	Capacity     CapacityConfig   `yaml:"capacity"`
 	Export       ExportConfig     `yaml:"export"`
 	SparklineCap int              `yaml:"sparkline_capacity"`
+}
+
+type CapacityConfig struct {
+	MaxOnlineUsers            float64 `yaml:"max_online_users"`
+	MaxInboundMsgPerSec       float64 `yaml:"max_inbound_msg_per_sec"`
+	MaxBackendFanoutMsgPerSec float64 `yaml:"max_backend_fanout_msg_per_sec"`
 }
 
 type LogConfig struct {

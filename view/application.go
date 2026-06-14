@@ -27,6 +27,7 @@ func RenderApplication(
 	tsKafkaLag, tsMsgLagGrowth *collector.TimeSeries,
 	tsLongTimePush *collector.TimeSeries,
 	tsE2EGroupP95, tsGatewayEncodeP95, tsTransferBatchP95 *collector.TimeSeries,
+	capacity CapacityMaxima,
 	scrollPos int,
 ) string {
 	if prom == nil || prom.Err != nil {
@@ -68,23 +69,23 @@ func RenderApplication(
 		botHeight = 5
 	}
 
-	topPanel := renderSparklinePanel(width, topHeight, prom, tsOnline, tsMsgs, tsSendRate, tsGatewaySend)
+	topPanel := renderSparklinePanel(width, topHeight, prom, tsOnline, tsMsgs, tsSendRate, tsGatewaySend, capacity)
 	pipelinePanel := renderPipelineLatency(width, pipelineHeight, prom, tsE2EGroupP95, tsGatewayEncodeP95, tsTransferBatchP95)
-	midTopPanel := renderMessageCounters(width, midTopHeight, prom)
+	midTopPanel := renderMessageCounters(width, midTopHeight, prom, capacity)
 	batchPanel := renderBatchSend(width, batchHeight, chatAPI)
-	midBotPanel := renderStoragePipeline(width, midBotHeight, prom, cw, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush)
+	midBotPanel := renderStoragePipeline(width, midBotHeight, prom, cw, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush, capacity)
 	botPanel := renderPodMetricsTable(width, botHeight, prom.PodMetrics, scrollPos)
 
 	return lipgloss.JoinVertical(lipgloss.Left, topPanel, pipelinePanel, midTopPanel, batchPanel, midBotPanel, botPanel)
 }
 
 // renderSparklinePanel draws sparkline rows inside a single panel.
-func renderSparklinePanel(width, height int, prom *collector.PrometheusSnapshot, tsOnline, tsMsgs, tsSendRate, tsGatewaySend *collector.TimeSeries) string {
+func renderSparklinePanel(width, height int, prom *collector.PrometheusSnapshot, tsOnline, tsMsgs, tsSendRate, tsGatewaySend *collector.TimeSeries, capacity CapacityMaxima) string {
 	innerW := width - 4 // panel border + small padding
 
 	// Each sparkline row: label (fixed width) + sparkline + current value
 	labelW := 18
-	valueW := 12
+	valueW := 34
 	sparkW := innerW - labelW - valueW - 2
 	if sparkW < 10 {
 		sparkW = 10
@@ -95,11 +96,12 @@ func renderSparklinePanel(width, height int, prom *collector.PrometheusSnapshot,
 		ts    *collector.TimeSeries
 		cur   float64
 		fmt   string
+		max   float64
 	}{
-		{"Online Users", tsOnline, prom.OnlineUsers, onlineUsersLabel(prom)},
-		{"Msgs / 5 min", tsMsgs, prom.MsgsIn5Min * 300, FormatNum(prom.MsgsIn5Min * 300)},
-		{"Msgs/s (In)", tsSendRate, prom.SendRate, FormatRate(prom.SendRate)},
-		{"GW Send (Out)", tsGatewaySend, prom.GatewaySendRate, FormatRate(prom.GatewaySendRate)},
+		{"Online Users", tsOnline, prom.OnlineUsers, onlineUsersLabel(prom), capacity.MaxOnlineUsers},
+		{"Msgs / 5 min", tsMsgs, prom.MsgsIn5Min * 300, FormatNum(prom.MsgsIn5Min * 300), capacityRatePer5Min(capacity.MaxInboundMsgPerSec)},
+		{"Msgs/s (In)", tsSendRate, prom.SendRate, FormatRate(prom.SendRate), capacity.MaxInboundMsgPerSec},
+		{"GW Send/s", tsGatewaySend, prom.GatewaySendRate, FormatRate(prom.GatewaySendRate), capacity.MaxBackendFanoutMsgPerSec},
 	}
 
 	var lines []string
@@ -111,7 +113,7 @@ func renderSparklinePanel(width, height int, prom *collector.PrometheusSnapshot,
 		} else {
 			spark = SparklineStr(nil, sparkW)
 		}
-		value := ValueStyle.Render(fmt.Sprintf("%*s", valueW, r.fmt))
+		value := formatCapacityValue(r.fmt, r.cur, r.max)
 		lines = append(lines, label+spark+" "+value)
 	}
 
@@ -225,7 +227,7 @@ func groupSizeValue(count float64) string {
 }
 
 // renderMessageCounters draws the message success/fail counters as a two-column layout.
-func renderMessageCounters(width, height int, prom *collector.PrometheusSnapshot) string {
+func renderMessageCounters(width, height int, prom *collector.PrometheusSnapshot, capacity CapacityMaxima) string {
 	innerW := width - 4
 
 	okStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorGreen)
@@ -246,9 +248,14 @@ func renderMessageCounters(width, height int, prom *collector.PrometheusSnapshot
 	groupOK := LabelStyle.Render("  OK:   ") + okStyle.Render(FormatNum(prom.GroupChatOK))
 	groupFail := LabelStyle.Render("  Fail: ") + failStyle.Render(FormatNum(prom.GroupChatFail))
 
+	inboundLoad := LabelStyle.Render("  Inbound Load: ") +
+		formatCapacityValue(FormatRate(prom.SendRate), prom.SendRate, capacity.MaxInboundMsgPerSec)
+	fanoutLoad := LabelStyle.Render("  Fanout Load:  ") +
+		formatCapacityValue(FormatRate(prom.GatewaySendRate), prom.GatewaySendRate, capacity.MaxBackendFanoutMsgPerSec)
+
 	// Build each column as a block
-	leftLines := []string{singleHeader, singleOK, singleFail}
-	rightLines := []string{groupHeader, groupOK, groupFail}
+	leftLines := []string{singleHeader, singleOK, singleFail, inboundLoad}
+	rightLines := []string{groupHeader, groupOK, groupFail, fanoutLoad}
 
 	var lines []string
 	for i := 0; i < len(leftLines); i++ {
@@ -265,7 +272,7 @@ func renderMessageCounters(width, height int, prom *collector.PrometheusSnapshot
 }
 
 // renderStoragePipeline draws the msg-transfer storage pipeline, Kafka lag, push/login/API metrics.
-func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot, cw *collector.CloudWatchSnapshot, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush *collector.TimeSeries) string {
+func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot, cw *collector.CloudWatchSnapshot, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush *collector.TimeSeries, capacity CapacityMaxima) string {
 	innerW := width - 4
 
 	okStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorGreen)
@@ -300,7 +307,7 @@ func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot
 		LabelStyle.Render("Push Slow(>10s) ") + failRateValue(prom.LongTimePush) +
 			LabelStyle.Render(" Fail ") + failRateValue(prom.PushFail),
 		LabelStyle.Render("Push Delivery  ") +
-			LabelStyle.Render("GW ") + okStyle.Render(FormatRate(prom.GatewaySendRate)) +
+			LabelStyle.Render("GW ") + formatCapacityValue(FormatRate(prom.GatewaySendRate), prom.GatewaySendRate, capacity.MaxBackendFanoutMsgPerSec) +
 			LabelStyle.Render("  Ratio ") + pushRatioValue(prom.GatewaySendRate, prom.SingleChatOK+prom.GroupChatOK),
 		LabelStyle.Render("Push Queue  ") +
 			LabelStyle.Render("InFlight ") + inFlightValue(prom.PushMsgInFlight) +

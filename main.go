@@ -101,10 +101,15 @@ func main() {
 
 func buildEnv(cfg *Config, promResolved map[promKey]string, promRecoverers map[promKey]func() error) model.EnvBundle {
 	mcfg := model.Config{
-		Namespace:          cfg.Namespace,
-		Environment:        cfg.Environment,
-		Kubeconfig:         expandHome(cfg.Kubeconfig),
-		SparklineCap:       cfg.SparklineCap,
+		Namespace:    cfg.Namespace,
+		Environment:  cfg.Environment,
+		Kubeconfig:   expandHome(cfg.Kubeconfig),
+		SparklineCap: cfg.SparklineCap,
+		Capacity: model.CapacityConfig{
+			MaxOnlineUsers:            cfg.Capacity.MaxOnlineUsers,
+			MaxInboundMsgPerSec:       cfg.Capacity.MaxInboundMsgPerSec,
+			MaxBackendFanoutMsgPerSec: cfg.Capacity.MaxBackendFanoutMsgPerSec,
+		},
 		PrometheusInterval: cfg.Prometheus.Interval,
 		CloudWatchRegion:   cfg.CloudWatch.Region,
 		CloudWatchInterval: cfg.CloudWatch.Interval,
@@ -318,12 +323,18 @@ func (a appModel) View() string {
 	contentH := h - 2
 
 	// Render active tab content
+	capacity := view.CapacityMaxima{
+		MaxOnlineUsers:            m.Config.Capacity.MaxOnlineUsers,
+		MaxInboundMsgPerSec:       m.Config.Capacity.MaxInboundMsgPerSec,
+		MaxBackendFanoutMsgPerSec: m.Config.Capacity.MaxBackendFanoutMsgPerSec,
+	}
+
 	var content string
 	switch m.ActiveTab {
 	case model.TabOverview:
 		content = view.RenderOverview(w, contentH, m.PromSnapshot, m.CWSnapshot, m.K8sSnapshot, m.LocustSnapshot,
 			m.Evaluator, m.TSOnlineUsers, m.TSMsgs5Min, m.TSSendRate, m.TSLocustRPS, m.TSLocustFail,
-			m.TSDocDBCPU, m.TSRdsCPU, m.TSAlbRT)
+			m.TSDocDBCPU, m.TSRdsCPU, m.TSAlbRT, m.TSGatewaySendRate, capacity)
 	case model.TabApp:
 		content = view.RenderApplication(w, contentH, m.PromSnapshot, m.CWSnapshot, m.ChatAPISnapshot,
 			m.TSOnlineUsers, m.TSMsgs5Min, m.TSSendRate,
@@ -332,7 +343,7 @@ func (a appModel) View() string {
 			m.TSKafkaLag, m.TSMsgLagGrowth,
 			m.TSLongTimePush,
 			m.TSE2EGroupP95, m.TSGatewayEncodeP95, m.TSTransferBatchP95,
-			m.ScrollPos)
+			capacity, m.ScrollPos)
 	case model.TabInfra:
 		content = view.RenderInfrastructure(w, contentH, m.CWSnapshot, m.InfraSpecs, m.TSDocDBCPU, m.TSRdsCPU, m.TSAlbRT, m.Config.RedisCPUWarn, m.Config.RedisCPUCrit, m.Config.RedisEvictWarn, m.Config.RedisEvictCrit, m.ScrollPos)
 	case model.TabKubernetes:

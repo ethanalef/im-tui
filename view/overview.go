@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	naText    = "N/A"
-	noDash    = "──"
-	sparkW    = 20
-	barWidth  = 16
+	naText   = "N/A"
+	noDash   = "──"
+	sparkW   = 20
+	barWidth = 16
 )
 
 // RenderOverview composites key metrics from all 4 data sources into a single
@@ -28,7 +28,8 @@ func RenderOverview(
 	ev *alert.Evaluator,
 	tsOnline, tsMsgs, tsSendRate,
 	tsLocustRPS, tsLocustFail,
-	tsDocDBCPU, tsRdsCPU, tsAlbRT *collector.TimeSeries,
+	tsDocDBCPU, tsRdsCPU, tsAlbRT, tsGatewaySend *collector.TimeSeries,
+	capacity CapacityMaxima,
 ) string {
 	// Calculate panel dimensions
 	halfW := width / 2
@@ -51,7 +52,7 @@ func RenderOverview(
 		halfH = 6
 	}
 
-	topLeft := renderAppPanel(halfW, halfH, prom, tsOnline, tsMsgs, tsSendRate)
+	topLeft := renderAppPanel(halfW, halfH, prom, tsOnline, tsMsgs, tsSendRate, tsGatewaySend, capacity)
 	topRight := renderClientPanel(halfW, halfH, locust, tsLocustRPS, tsLocustFail)
 	botLeft := renderInfraPanel(halfW, halfH, cw, tsDocDBCPU, tsRdsCPU, tsAlbRT)
 	botRight := renderK8sPanel(halfW, halfH, k8s)
@@ -73,7 +74,7 @@ func RenderOverview(
 // Top-left: Application (Prometheus)
 // ---------------------------------------------------------------------------
 
-func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMsgs, tsSendRate *collector.TimeSeries) string {
+func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMsgs, tsSendRate, tsGatewaySend *collector.TimeSeries, capacity CapacityMaxima) string {
 	if prom == nil || prom.Err != nil {
 		msg := naText
 		if prom != nil && prom.Err != nil {
@@ -92,17 +93,22 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 		onlineLabel = fmt.Sprintf("Online Users (conns: %s)", FormatNum(prom.OnlineConns))
 	}
 	lines = append(lines,
-		fmtMetricSparkline(onlineLabel, FormatNum(prom.OnlineUsers), tsOnline, innerW),
+		fmtMetricSparklineStyled(onlineLabel, formatCapacityValue(FormatNum(prom.OnlineUsers), prom.OnlineUsers, capacity.MaxOnlineUsers), tsOnline, innerW),
 	)
 
 	// Messages in last 5 min with sparkline (rate * 300s = count)
 	lines = append(lines,
-		fmtMetricSparkline("Msgs/5min", FormatNum(prom.MsgsIn5Min*300), tsMsgs, innerW),
+		fmtMetricSparklineStyled("Msgs/5min", formatCapacityValue(FormatNum(prom.MsgsIn5Min*300), prom.MsgsIn5Min*300, capacityRatePer5Min(capacity.MaxInboundMsgPerSec)), tsMsgs, innerW),
 	)
 
 	// Msgs/s (inbound) with sparkline
 	lines = append(lines,
-		fmtMetricSparkline("Msgs/s (In)", FormatRate(prom.SendRate), tsSendRate, innerW),
+		fmtMetricSparklineStyled("Msgs/s (In)", formatCapacityValue(FormatRate(prom.SendRate), prom.SendRate, capacity.MaxInboundMsgPerSec), tsSendRate, innerW),
+	)
+
+	// Gateway fan-out send rate with sparkline.
+	lines = append(lines,
+		fmtMetricSparklineStyled("GW Send/s", formatCapacityValue(FormatRate(prom.GatewaySendRate), prom.GatewaySendRate, capacity.MaxBackendFanoutMsgPerSec), tsGatewaySend, innerW),
 	)
 
 	// Chat success / fail
@@ -505,8 +511,12 @@ func renderAlertBanner(width int, alerts []alert.Alert) string {
 
 // fmtMetricSparkline renders: "Label  value  ▁▂▃▅▇"
 func fmtMetricSparkline(label, value string, ts *collector.TimeSeries, innerW int) string {
+	return fmtMetricSparklineStyled(label, ValueStyle.Render(value), ts, innerW)
+}
+
+func fmtMetricSparklineStyled(label, renderedValue string, ts *collector.TimeSeries, innerW int) string {
 	spark := sparkline(ts, sparkW)
-	return LabelStyle.Render(label+"  ") + ValueStyle.Render(value) + LabelStyle.Render("  ") + spark
+	return LabelStyle.Render(label+"  ") + renderedValue + LabelStyle.Render("  ") + spark
 }
 
 func sparkline(ts *collector.TimeSeries, w int) string {
