@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"im-tui/alert"
 	"im-tui/collector"
@@ -181,6 +182,7 @@ func buildEnv(cfg *Config, promResolved map[promKey]string, promRecoverers map[p
 		Error5XXWarn:           cfg.Thresholds.Error5XXWarn,
 		Error5XXCrit:           cfg.Thresholds.Error5XXCrit,
 		PodRestartCrit:         cfg.Thresholds.PodRestartCrit,
+		PodRestartRecentWindow: time.Duration(cfg.Thresholds.PodRestartWindowMin) * time.Minute,
 		LocustFailWarn:         cfg.Thresholds.LocustFailWarn,
 		ResponseTimeWarn:       cfg.Thresholds.ResponseTimeWarn,
 		DocDBConnWarn:          cfg.Thresholds.DocDBConnWarn,

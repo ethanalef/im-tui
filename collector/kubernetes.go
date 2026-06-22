@@ -108,6 +108,11 @@ func (k *KubernetesCollector) getPods() ([]PodInfo, error) {
 				ContainerStatuses []struct {
 					Ready        bool `json:"ready"`
 					RestartCount int  `json:"restartCount"`
+					LastState    struct {
+						Terminated struct {
+							FinishedAt time.Time `json:"finishedAt"`
+						} `json:"terminated"`
+					} `json:"lastState"`
 				} `json:"containerStatuses"`
 			} `json:"status"`
 		} `json:"items"`
@@ -127,12 +132,21 @@ outer:
 		}
 		restarts := 0
 		ready := 0
+		var lastRestart time.Time // most recent termination across containers
 		total := len(item.Status.ContainerStatuses)
 		for _, cs := range item.Status.ContainerStatuses {
 			restarts += cs.RestartCount
 			if cs.Ready {
 				ready++
 			}
+			if cs.RestartCount > 0 {
+				if t := cs.LastState.Terminated.FinishedAt; !t.IsZero() && t.After(lastRestart) {
+					lastRestart = t
+				}
+			}
+		}
+		if !lastRestart.IsZero() {
+			lastRestart = lastRestart.Local()
 		}
 
 		age := formatAge(time.Since(item.Metadata.CreationTimestamp))
@@ -161,15 +175,16 @@ outer:
 		}
 
 		pods = append(pods, PodInfo{
-			Name:       item.Metadata.Name,
-			Status:     item.Status.Phase,
-			Ready:      fmt.Sprintf("%d/%d", ready, total),
-			Restarts:   restarts,
-			Age:        age,
-			CPURequest: cpuReq,
-			CPULimit:   cpuLim,
-			MemRequest: memReq,
-			MemLimit:   memLim,
+			Name:        item.Metadata.Name,
+			Status:      item.Status.Phase,
+			Ready:       fmt.Sprintf("%d/%d", ready, total),
+			Restarts:    restarts,
+			LastRestart: lastRestart,
+			Age:         age,
+			CPURequest:  cpuReq,
+			CPULimit:    cpuLim,
+			MemRequest:  memReq,
+			MemLimit:    memLim,
 		})
 	}
 	return pods, nil
@@ -267,10 +282,10 @@ func (k *KubernetesCollector) getEvents() ([]EventInfo, error) {
 
 	var eventList struct {
 		Items []struct {
-			Type    string `json:"type"`
-			Reason  string `json:"reason"`
-			Message string `json:"message"`
-			Count   int    `json:"count"`
+			Type           string `json:"type"`
+			Reason         string `json:"reason"`
+			Message        string `json:"message"`
+			Count          int    `json:"count"`
 			InvolvedObject struct {
 				Name string `json:"name"`
 				Kind string `json:"kind"`

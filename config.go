@@ -117,6 +117,8 @@ type ThresholdConfig struct {
 	PodRestartCrit   int     `yaml:"pod_restart_crit"`
 	LocustFailWarn   float64 `yaml:"locust_fail_warn"`
 	ResponseTimeWarn int     `yaml:"response_time_warn_ms"`
+	// PodRestartWindowMin ignores restarts older than N minutes (default 60; negative disables).
+	PodRestartWindowMin int `yaml:"pod_restart_window_min"`
 
 	// DocDB Elastic
 	DocDBConnWarn float64 `yaml:"docdb_conn_warn"`
@@ -209,6 +211,11 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.Thresholds.Error5XXCrit == 0 {
 		cfg.Thresholds.Error5XXCrit = 10
+	}
+
+	// Pod-restart age-out window (minutes). 0 = unset → default 60; set negative to disable.
+	if cfg.Thresholds.PodRestartWindowMin == 0 {
+		cfg.Thresholds.PodRestartWindowMin = 60
 	}
 
 	// ElastiCache: discovery is opt-in per environment via replication_group_id.

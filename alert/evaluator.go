@@ -34,6 +34,11 @@ type Thresholds struct {
 	LocustFailWarn   float64
 	ResponseTimeWarn int // ms
 
+	// PodRestartRecentWindow ignores pod restarts older than this so a one-time
+	// restart that already recovered (e.g. an OOMKill days ago) doesn't linger as
+	// a standing critical. Zero disables age-out (alert on any restart).
+	PodRestartRecentWindow time.Duration
+
 	DocDBConnWarn    float64
 	DocDBConnCrit    float64
 	RDSLatencyWarnMs float64
@@ -75,15 +80,29 @@ type SpikeInput struct {
 	Values []float64 // chronological, latest last
 }
 
+// maxHistory caps the number of retained alert-onset events.
+const maxHistory = 200
+
 type Evaluator struct {
 	mu         sync.Mutex
 	thresholds Thresholds
 	history    []Alert
 	active     []Alert
+	// activeKeys holds the identity keys of alerts active in the previous
+	// evaluation. Used to record only newly-fired alerts in history so that
+	// persistent conditions don't re-log on every poll.
+	activeKeys map[string]bool
 }
 
 func NewEvaluator(t Thresholds) *Evaluator {
 	return &Evaluator{thresholds: t}
+}
+
+// alertKey is the stable identity of an alert occurrence. Value is included so
+// distinct entities sharing a metric (e.g. per-pod "Pod Restarts") stay
+// separate, while an unchanged ongoing alert maps to the same key across polls.
+func alertKey(a Alert) string {
+	return string(a.Level) + "\x00" + a.Metric + "\x00" + a.Value + "\x00" + a.Message
 }
 
 func (e *Evaluator) Thresholds() Thresholds {
@@ -313,8 +332,26 @@ func (e *Evaluator) Evaluate(
 	// Kubernetes pod restarts
 	if k8s != nil && k8s.Err == nil {
 		for _, pod := range k8s.Pods {
+			// Skip evicted/failed tombstone pods. Their restartCount reflects a
+			// one-time node eviction (DiskPressure / ephemeral-storage), not an
+			// ongoing restart, and they linger for days until garbage-collected.
+			if pod.Status != "Running" {
+				continue
+			}
 			if pod.Restarts >= e.thresholds.PodRestartCrit {
-				alerts = append(alerts, Alert{LevelCritical, "Pod Restarts", fmt.Sprintf("%s: %d", pod.Name, pod.Restarts), "Pod has restarted", now})
+				// Use the actual restart time, not detection time, so history
+				// reflects when the pod really went down. Falls back to now only
+				// when the container has no recorded termination time.
+				ts := now
+				if !pod.LastRestart.IsZero() {
+					ts = pod.LastRestart
+					// Age-out: skip restarts older than the configured window so a
+					// long-recovered restart doesn't stay critical forever.
+					if w := e.thresholds.PodRestartRecentWindow; w > 0 && now.Sub(pod.LastRestart) > w {
+						continue
+					}
+				}
+				alerts = append(alerts, Alert{LevelCritical, "Pod Restarts", fmt.Sprintf("%s: %d", pod.Name, pod.Restarts), "Pod has restarted", ts})
 			}
 		}
 	}
@@ -357,14 +394,31 @@ func (e *Evaluator) Evaluate(
 	// Spike detection: sudden rapid rises in infrastructure metrics
 	alerts = append(alerts, e.detectSpikes(spikes, now)...)
 
-	// Update active/history under lock
+	// Update active/history under lock. History is edge-triggered: only alerts
+	// that were not active in the previous evaluation are recorded, so an
+	// ongoing condition logs once at onset instead of re-logging every poll. A
+	// condition that clears and later re-fires is recorded again.
 	e.mu.Lock()
 	e.active = alerts
-	if len(alerts) > 0 {
-		e.history = append(alerts, e.history...)
-		// Cap history at 200
-		if len(e.history) > 200 {
-			e.history = e.history[:200]
+
+	newKeys := make(map[string]bool, len(alerts))
+	var fresh []Alert
+	for _, a := range alerts {
+		k := alertKey(a)
+		if newKeys[k] {
+			continue // collapse duplicates within a single evaluation
+		}
+		newKeys[k] = true
+		if !e.activeKeys[k] {
+			fresh = append(fresh, a)
+		}
+	}
+	e.activeKeys = newKeys
+
+	if len(fresh) > 0 {
+		e.history = append(fresh, e.history...)
+		if len(e.history) > maxHistory {
+			e.history = e.history[:maxHistory]
 		}
 	}
 	e.mu.Unlock()

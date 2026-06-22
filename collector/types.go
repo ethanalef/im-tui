@@ -1,6 +1,9 @@
 package collector
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // TimeSeries is a thread-safe ring buffer for sparkline data.
 type TimeSeries struct {
@@ -214,19 +217,20 @@ type KubernetesSnapshot struct {
 }
 
 type PodInfo struct {
-	Name       string
-	Status     string
-	Ready      string
-	Restarts   int
-	Age        string
-	CPUUsage   string  // from kubectl top (e.g. "3m")
-	MemUsage   string  // from kubectl top (e.g. "256Mi")
-	CPURequest string  // from pod spec resources.requests.cpu
-	CPULimit   string  // from pod spec resources.limits.cpu
-	MemRequest string  // from pod spec resources.requests.memory
-	MemLimit   string  // from pod spec resources.limits.memory
-	CPUPercent float64 // usage/limit * 100 (0 if unknown)
-	MemPercent float64 // usage/limit * 100 (0 if unknown)
+	Name        string
+	Status      string
+	Ready       string
+	Restarts    int
+	LastRestart time.Time // local time of most recent container restart (zero if never restarted)
+	Age         string
+	CPUUsage    string  // from kubectl top (e.g. "3m")
+	MemUsage    string  // from kubectl top (e.g. "256Mi")
+	CPURequest  string  // from pod spec resources.requests.cpu
+	CPULimit    string  // from pod spec resources.limits.cpu
+	MemRequest  string  // from pod spec resources.requests.memory
+	MemLimit    string  // from pod spec resources.limits.memory
+	CPUPercent  float64 // usage/limit * 100 (0 if unknown)
+	MemPercent  float64 // usage/limit * 100 (0 if unknown)
 }
 
 type HPAInfo struct {

@@ -144,7 +144,7 @@ func renderAlertHistory(w, h int, history []alert.Alert, scrollPos int) string {
 		return LabelStyle.Render("No alerts recorded")
 	}
 
-	header := fmt.Sprintf("%-8s %-8s %-20s %-10s %s", "TIME", "LEVEL", "METRIC", "VALUE", "MESSAGE")
+	header := fmt.Sprintf("%-14s %-8s %-20s %-10s %s", "TIME", "LEVEL", "METRIC", "VALUE", "MESSAGE")
 	headerStyled := lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render(header)
 
 	sep := lipgloss.NewStyle().Foreground(ColorBorder).Render(strings.Repeat("─", w))
@@ -172,19 +172,21 @@ func renderAlertHistory(w, h int, history []alert.Alert, scrollPos int) string {
 	}
 
 	for _, a := range history[startIdx:endIdx] {
-		timeStr := a.Time.Format("15:04:05")
+		// Include the date (MM-DD) so events from earlier days aren't mistaken
+		// for today — a restart from days ago must not look like it just happened.
+		timeStr := a.Time.Format("01-02 15:04:05")
 
 		color := ColorYellow
 		if a.Level == alert.LevelCritical {
 			color = ColorRed
 		}
 
-		row := fmt.Sprintf("%-8s %s %-20s %s %s",
+		row := fmt.Sprintf("%-14s %s %-20s %s %s",
 			LabelStyle.Render(timeStr),
 			lipgloss.NewStyle().Foreground(color).Bold(true).Render(PadRight(string(a.Level), 8)),
 			Truncate(a.Metric, 20),
 			lipgloss.NewStyle().Foreground(color).Render(PadRight(a.Value, 10)),
-			LabelStyle.Render(Truncate(a.Message, w-52)),
+			LabelStyle.Render(Truncate(a.Message, w-58)),
 		)
 		lines = append(lines, row)
 	}
