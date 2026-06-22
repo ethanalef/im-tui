@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 
+	"im-tui/alert"
 	"im-tui/collector"
 
 	"github.com/charmbracelet/lipgloss"
@@ -28,6 +29,7 @@ func RenderApplication(
 	tsLongTimePush *collector.TimeSeries,
 	tsE2EGroupP95, tsGatewayEncodeP95, tsTransferBatchP95 *collector.TimeSeries,
 	capacity CapacityMaxima,
+	ev *alert.Evaluator,
 	scrollPos int,
 ) string {
 	if prom == nil || prom.Err != nil {
@@ -73,7 +75,11 @@ func RenderApplication(
 	pipelinePanel := renderPipelineLatency(width, pipelineHeight, prom, tsE2EGroupP95, tsGatewayEncodeP95, tsTransferBatchP95)
 	midTopPanel := renderMessageCounters(width, midTopHeight, prom, capacity)
 	batchPanel := renderBatchSend(width, batchHeight, chatAPI)
-	midBotPanel := renderStoragePipeline(width, midBotHeight, prom, cw, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush, capacity)
+	thresholds := alert.Thresholds{}
+	if ev != nil {
+		thresholds = ev.Thresholds()
+	}
+	midBotPanel := renderStoragePipeline(width, midBotHeight, prom, cw, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush, capacity, thresholds)
 	botPanel := renderPodMetricsTable(width, botHeight, prom.PodMetrics, scrollPos)
 
 	return lipgloss.JoinVertical(lipgloss.Left, topPanel, pipelinePanel, midTopPanel, batchPanel, midBotPanel, botPanel)
@@ -272,7 +278,7 @@ func renderMessageCounters(width, height int, prom *collector.PrometheusSnapshot
 }
 
 // renderStoragePipeline draws the msg-transfer storage pipeline, Kafka lag, push/login/API metrics.
-func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot, cw *collector.CloudWatchSnapshot, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush *collector.TimeSeries, capacity CapacityMaxima) string {
+func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot, cw *collector.CloudWatchSnapshot, tsRedisOK, tsMongoOK, tsLogin, tsKafkaLag, tsMsgLagGrowth, tsLongTimePush *collector.TimeSeries, capacity CapacityMaxima, thresholds alert.Thresholds) string {
 	innerW := width - 4
 
 	okStyle := lipgloss.NewStyle().Bold(true).Foreground(ColorGreen)
@@ -304,8 +310,8 @@ func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot
 
 	// Right column: push pipeline + activity + per-service 5XX
 	rightLines := []string{
-		LabelStyle.Render("Push Slow(>10s) ") + failRateValue(prom.LongTimePush) +
-			LabelStyle.Render(" Fail ") + failRateValue(prom.PushFail),
+		LabelStyle.Render("Push Slow(>10s) ") + thresholdRateValue(prom.LongTimePush, thresholds.LongTimePushWarnPerSec) +
+			LabelStyle.Render(" Fail ") + thresholdRateValue(prom.PushFail, thresholds.PushFailWarnPerSec),
 		LabelStyle.Render("Push Delivery  ") +
 			LabelStyle.Render("GW ") + formatCapacityValue(FormatRate(prom.GatewaySendRate), prom.GatewaySendRate, capacity.MaxBackendFanoutMsgPerSec) +
 			LabelStyle.Render("  Ratio ") + pushRatioValue(prom.GatewaySendRate, prom.SingleChatOK+prom.GroupChatOK),
@@ -372,6 +378,17 @@ func failRateValue(rate float64) string {
 	s := FormatRate(rate)
 	if rate > 0 {
 		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+}
+
+func thresholdRateValue(rate, warnThreshold float64) string {
+	s := FormatRate(rate)
+	if rateMeetsWarningThreshold(rate, warnThreshold) {
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	}
+	if rate > 0 {
+		return ValueStyle.Render(s)
 	}
 	return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
 }

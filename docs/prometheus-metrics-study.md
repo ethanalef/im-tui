@@ -109,7 +109,7 @@ These metrics indicate data loss or service degradation. Any non-zero failure ra
 | `msg_insert_redis_failed_total` | msg-transfer | `rate(msg_insert_redis_failed_total[1m])` | > 0 = critical |
 | `msg_insert_mongo_failed_total` | msg-transfer | `rate(msg_insert_mongo_failed_total[1m])` | > 0 = critical |
 | `seq_set_failed_total` | msg-transfer | `rate(seq_set_failed_total[1m])` | > 0 = critical |
-| `msg_offline_push_failed_total` | push | `rate(msg_offline_push_failed_total[1m])` | > 0 = warning |
+| `msg_offline_push_failed_total` | push | `rate(msg_offline_push_failed_total[1m])` | Environment-specific warning (`push_fail_warn_per_sec`); unset keeps > 0 = warning |
 | `push_zombie_filter_fail_open_total` | push | `rate(push_zombie_filter_fail_open_total[1m])` | > 0 = warning |
 | `push_zombie_filter_cache_error_total` | push | `rate(push_zombie_filter_cache_error_total[1m])` | > 0 = warning |
 

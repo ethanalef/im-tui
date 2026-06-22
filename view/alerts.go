@@ -40,7 +40,7 @@ func RenderAlerts(width, height int, ev *alert.Evaluator, scrollPos int) string 
 	threshW := 35
 	histW := width - threshW - 1
 
-	threshContent := renderThresholds(threshW-2, historyH-2)
+	threshContent := renderThresholds(threshW-2, historyH-2, ev.Thresholds())
 	threshPanel := Panel("Thresholds", threshContent, threshW, historyH)
 
 	histContent := renderAlertHistory(histW-2, historyH-2, history, scrollPos)
@@ -78,25 +78,65 @@ func renderActiveAlerts(w, h int, active []alert.Alert) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderThresholds(w, h int) string {
+func renderThresholds(w, h int, t alert.Thresholds) string {
 	warn := lipgloss.NewStyle().Foreground(ColorYellow)
 	crit := lipgloss.NewStyle().Foreground(ColorRed)
 
 	lines := []string{
 		lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render("Metric        Warn  Crit"),
 		lipgloss.NewStyle().Foreground(ColorBorder).Render(strings.Repeat("─", w)),
-		LabelStyle.Render("CPU %         ") + warn.Render(">50%  ") + crit.Render(">80%"),
-		LabelStyle.Render("Memory %      ") + warn.Render(">70%  ") + LabelStyle.Render("─"),
-		LabelStyle.Render("DocDB Conns   ") + warn.Render(">80   ") + crit.Render(">100"),
-		LabelStyle.Render("RDS Latency   ") + warn.Render(">5ms  ") + crit.Render(">10ms"),
-		LabelStyle.Render("RDS DiskQueue ") + warn.Render(">5    ") + crit.Render(">10"),
-		LabelStyle.Render("Redis Evict   ") + warn.Render(">0    ") + crit.Render(">100"),
-		LabelStyle.Render("Goroutines    ") + warn.Render(">5K   ") + crit.Render(">10K"),
-		LabelStyle.Render("5XX errors    ") + warn.Render(">0    ") + crit.Render(">10"),
-		LabelStyle.Render("Pod restarts  ") + LabelStyle.Render("─     ") + crit.Render(">0"),
-		LabelStyle.Render("Locust fail%  ") + warn.Render(">1%   ") + crit.Render(">5%"),
+		thresholdRow("CPU %", thresholdGT(t.CPUWarn, "%", false), thresholdGT(t.CPUCrit, "%", false), warn, crit),
+		thresholdRow("Memory %", thresholdGT(t.MemoryWarn, "%", false), "─", warn, crit),
+		thresholdRow("DocDB Conns", thresholdGT(t.DocDBConnWarn, "", false), thresholdGT(t.DocDBConnCrit, "", false), warn, crit),
+		thresholdRow("RDS Latency", thresholdGT(t.RDSLatencyWarnMs, "ms", false), thresholdGT(t.RDSLatencyCritMs, "ms", false), warn, crit),
+		thresholdRow("RDS DiskQ", thresholdGT(t.RDSDiskQueueWarn, "", false), thresholdGT(t.RDSDiskQueueCrit, "", false), warn, crit),
+		thresholdRow("Redis eCPU", thresholdGT(t.RedisCPUWarn, "%", false), thresholdGT(t.RedisCPUCrit, "%", false), warn, crit),
+		thresholdRow("Redis Evict", thresholdGT(t.RedisEvictWarn, "", false), thresholdGT(t.RedisEvictCrit, "", false), warn, crit),
+		thresholdRow("Kafka Lag", thresholdGT(t.KafkaLagWarn, "", false), thresholdGT(t.KafkaLagCrit, "", false), warn, crit),
+		thresholdRow("Push Fail/s", thresholdGT(t.PushFailWarnPerSec, "", true), thresholdGT(t.PushFailCritPerSec, "", false), warn, crit),
+		thresholdRow("Push Slow/s", thresholdGT(t.LongTimePushWarnPerSec, "", true), thresholdGT(t.LongTimePushCritPerSec, "", false), warn, crit),
+		thresholdRow("E2E Group", thresholdGT(t.E2EGroupWarnS, "s", false), thresholdGT(t.E2EGroupCritS, "s", false), warn, crit),
+		thresholdRow("E2E Single", thresholdGT(t.E2ESingleWarnS, "s", false), thresholdGT(t.E2ESingleCritS, "s", false), warn, crit),
+		thresholdRow("5XX errors", thresholdGT(float64(t.Error5XXWarn), "", true), thresholdGT(float64(t.Error5XXCrit), "", false), warn, crit),
+		thresholdRow("Pod restarts", "─", thresholdGT(float64(t.PodRestartCrit), "", false), warn, crit),
+		thresholdRow("Locust fail%", thresholdGT(t.LocustFailWarn, "%", false), ">5%", warn, crit),
 	}
 	return strings.Join(lines, "\n")
+}
+
+func thresholdRow(label, warnValue, critValue string, warn, crit lipgloss.Style) string {
+	return LabelStyle.Render(fmt.Sprintf("%-12s ", label)) +
+		warn.Render(fmt.Sprintf("%-6s", warnValue)) +
+		crit.Render(critValue)
+}
+
+func thresholdGT(v float64, suffix string, zeroMeansAny bool) string {
+	if v <= 0 {
+		if zeroMeansAny {
+			return ">0"
+		}
+		return "─"
+	}
+	return ">" + thresholdValue(v, suffix)
+}
+
+func thresholdValue(v float64, suffix string) string {
+	if suffix == "ms" || suffix == "s" {
+		if v == float64(int64(v)) {
+			return fmt.Sprintf("%.0f%s", v, suffix)
+		}
+		return fmt.Sprintf("%.2g%s", v, suffix)
+	}
+	if suffix != "" {
+		return fmt.Sprintf("%.0f%s", v, suffix)
+	}
+	if v >= 1000 {
+		return fmt.Sprintf("%.0fK", v/1000)
+	}
+	if v == float64(int64(v)) {
+		return fmt.Sprintf("%.0f", v)
+	}
+	return fmt.Sprintf("%.2g", v)
 }
 
 func renderAlertHistory(w, h int, history []alert.Alert, scrollPos int) string {

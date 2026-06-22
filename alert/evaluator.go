@@ -29,6 +29,7 @@ type Thresholds struct {
 	CPUCrit          float64
 	MemoryWarn       float64
 	Error5XXWarn     int
+	Error5XXCrit     int
 	PodRestartCrit   int
 	LocustFailWarn   float64
 	ResponseTimeWarn int // ms
@@ -47,6 +48,11 @@ type Thresholds struct {
 	GoroutineCrit    float64
 	KafkaLagWarn     float64
 	KafkaLagCrit     float64
+
+	PushFailWarnPerSec     float64
+	PushFailCritPerSec     float64
+	LongTimePushWarnPerSec float64
+	LongTimePushCritPerSec float64
 
 	// Pipeline latency P95 thresholds (upgrade version metrics)
 	E2EGroupWarnS      float64
@@ -80,6 +86,12 @@ func NewEvaluator(t Thresholds) *Evaluator {
 	return &Evaluator{thresholds: t}
 }
 
+func (e *Evaluator) Thresholds() Thresholds {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.thresholds
+}
+
 func (e *Evaluator) Evaluate(
 	prom *collector.PrometheusSnapshot,
 	cw *collector.CloudWatchSnapshot,
@@ -101,10 +113,18 @@ func (e *Evaluator) Evaluate(
 		if prom.SeqSetFail > 0 {
 			alerts = append(alerts, Alert{LevelCritical, "Seq Set Fail", fmt.Sprintf("%.2f/s", prom.SeqSetFail), "Message sequence assignment failing", now})
 		}
-		if prom.PushFail > 0 {
+		pushFailWarn := e.thresholds.PushFailWarnPerSec
+		pushFailCrit := e.thresholds.PushFailCritPerSec
+		if pushFailCrit > 0 && prom.PushFail >= pushFailCrit {
+			alerts = append(alerts, Alert{LevelCritical, "Push Fail", fmt.Sprintf("%.2f/s", prom.PushFail), "Offline push failures critical", now})
+		} else if (pushFailWarn > 0 && prom.PushFail >= pushFailWarn) || (pushFailWarn == 0 && prom.PushFail > 0) {
 			alerts = append(alerts, Alert{LevelWarning, "Push Fail", fmt.Sprintf("%.2f/s", prom.PushFail), "Offline push notifications failing", now})
 		}
-		if prom.LongTimePush > 0 {
+		longTimePushWarn := e.thresholds.LongTimePushWarnPerSec
+		longTimePushCrit := e.thresholds.LongTimePushCritPerSec
+		if longTimePushCrit > 0 && prom.LongTimePush >= longTimePushCrit {
+			alerts = append(alerts, Alert{LevelCritical, "Push Slow >10s", fmt.Sprintf("%.2f/s", prom.LongTimePush), "Messages taking >10s from send to push delivery — push pipeline critically backlogged", now})
+		} else if (longTimePushWarn > 0 && prom.LongTimePush >= longTimePushWarn) || (longTimePushWarn == 0 && prom.LongTimePush > 0) {
 			alerts = append(alerts, Alert{LevelWarning, "Push Slow >10s", fmt.Sprintf("%.2f/s", prom.LongTimePush), "Messages taking >10s from send to push delivery — push pipeline backlogged", now})
 		}
 		if prom.PushZombieFailOpen > 0 {
@@ -223,7 +243,11 @@ func (e *Evaluator) Evaluate(
 
 		// ALB 5XX
 		if int(cw.ALB.Count5XX) > 0 {
-			if int(cw.ALB.Count5XX) >= 10 {
+			error5XXCrit := e.thresholds.Error5XXCrit
+			if error5XXCrit == 0 {
+				error5XXCrit = 10
+			}
+			if int(cw.ALB.Count5XX) >= error5XXCrit {
 				alerts = append(alerts, Alert{LevelCritical, "ALB 5XX", fmt.Sprintf("%.0f", cw.ALB.Count5XX), "High 5XX error count", now})
 			} else if int(cw.ALB.Count5XX) >= e.thresholds.Error5XXWarn {
 				alerts = append(alerts, Alert{LevelWarning, "ALB 5XX", fmt.Sprintf("%.0f", cw.ALB.Count5XX), "5XX errors detected", now})

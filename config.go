@@ -113,6 +113,7 @@ type ThresholdConfig struct {
 	CPUCrit          float64 `yaml:"cpu_crit"`
 	MemoryWarn       float64 `yaml:"memory_warn"`
 	Error5XXWarn     int     `yaml:"error_5xx_warn"`
+	Error5XXCrit     int     `yaml:"error_5xx_crit"`
 	PodRestartCrit   int     `yaml:"pod_restart_crit"`
 	LocustFailWarn   float64 `yaml:"locust_fail_warn"`
 	ResponseTimeWarn int     `yaml:"response_time_warn_ms"`
@@ -140,6 +141,12 @@ type ThresholdConfig struct {
 	// Kafka consumer lag
 	KafkaLagWarn float64 `yaml:"kafka_lag_warn"`
 	KafkaLagCrit float64 `yaml:"kafka_lag_crit"`
+
+	// Push quality rates
+	PushFailWarnPerSec     float64 `yaml:"push_fail_warn_per_sec"`
+	PushFailCritPerSec     float64 `yaml:"push_fail_crit_per_sec"`
+	LongTimePushWarnPerSec float64 `yaml:"long_time_push_warn_per_sec"`
+	LongTimePushCritPerSec float64 `yaml:"long_time_push_crit_per_sec"`
 
 	// Pipeline latency P95 thresholds (upgrade version metrics)
 	E2EGroupWarnS      float64 `yaml:"e2e_group_warn_s"`      // group delivery P95 warning (seconds)
@@ -199,6 +206,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if cfg.SparklineCap == 0 {
 		cfg.SparklineCap = 60
+	}
+	if cfg.Thresholds.Error5XXCrit == 0 {
+		cfg.Thresholds.Error5XXCrit = 10
 	}
 
 	// ElastiCache: discovery is opt-in per environment via replication_group_id.

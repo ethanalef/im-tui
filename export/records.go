@@ -40,9 +40,41 @@ type ThresholdConfig struct {
 	CPUCrit          float64 `json:"cpu_crit"`
 	MemoryWarn       float64 `json:"memory_warn"`
 	Error5XXWarn     int     `json:"error_5xx_warn"`
+	Error5XXCrit     int     `json:"error_5xx_crit"`
 	PodRestartCrit   int     `json:"pod_restart_crit"`
 	LocustFailWarn   float64 `json:"locust_fail_warn"`
 	ResponseTimeWarn int     `json:"response_time_warn_ms"`
+
+	DocDBConnWarn    float64 `json:"docdb_conn_warn"`
+	DocDBConnCrit    float64 `json:"docdb_conn_crit"`
+	RDSLatencyWarnMs float64 `json:"rds_latency_warn_ms"`
+	RDSLatencyCritMs float64 `json:"rds_latency_crit_ms"`
+	RDSDiskQueueWarn float64 `json:"rds_disk_queue_warn"`
+	RDSDiskQueueCrit float64 `json:"rds_disk_queue_crit"`
+	RedisEvictWarn   float64 `json:"redis_evict_warn"`
+	RedisEvictCrit   float64 `json:"redis_evict_crit"`
+	RedisCPUWarn     float64 `json:"redis_cpu_warn"`
+	RedisCPUCrit     float64 `json:"redis_cpu_crit"`
+	GoroutineWarn    float64 `json:"goroutine_warn"`
+	GoroutineCrit    float64 `json:"goroutine_crit"`
+	KafkaLagWarn     float64 `json:"kafka_lag_warn"`
+	KafkaLagCrit     float64 `json:"kafka_lag_crit"`
+
+	PushFailWarnPerSec     float64 `json:"push_fail_warn_per_sec"`
+	PushFailCritPerSec     float64 `json:"push_fail_crit_per_sec"`
+	LongTimePushWarnPerSec float64 `json:"long_time_push_warn_per_sec"`
+	LongTimePushCritPerSec float64 `json:"long_time_push_crit_per_sec"`
+
+	E2EGroupWarnS      float64 `json:"e2e_group_warn_s"`
+	E2EGroupCritS      float64 `json:"e2e_group_crit_s"`
+	E2ESingleWarnS     float64 `json:"e2e_single_warn_s"`
+	E2ESingleCritS     float64 `json:"e2e_single_crit_s"`
+	GatewayEncodeWarnS float64 `json:"gw_encode_warn_s"`
+	GatewayEncodeCritS float64 `json:"gw_encode_crit_s"`
+	TransferBatchWarnS float64 `json:"transfer_batch_warn_s"`
+	TransferBatchCritS float64 `json:"transfer_batch_crit_s"`
+	SpikeRisePct       float64 `json:"spike_rise_pct"`
+	SpikeMinSamples    int     `json:"spike_min_samples"`
 }
 
 // SnapshotRecord is written every export interval with consolidated metrics.

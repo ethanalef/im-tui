@@ -394,7 +394,11 @@ func RenderSystemMap(
 	pushContent := []string{fmt.Sprintf(" %s %s", push.dot(), v("push"))}
 	if push.Total > 0 {
 		pushContent = append(pushContent, fmt.Sprintf(" %s  %s", lbl("OK"), v(fmt.Sprintf("%d/%d", push.Running, push.Total))))
-		if prom != nil && prom.Err == nil && prom.LongTimePush > 0 {
+		thresholds := alert.Thresholds{}
+		if ev != nil {
+			thresholds = ev.Thresholds()
+		}
+		if prom != nil && prom.Err == nil && rateMeetsWarningThreshold(prom.LongTimePush, thresholds.LongTimePushWarnPerSec) {
 			pushContent = append(pushContent, " "+lipgloss.NewStyle().Foreground(ColorYellow).Render(fmt.Sprintf("slow:%.1f/s", prom.LongTimePush)))
 		}
 	} else {

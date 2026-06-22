@@ -43,6 +43,10 @@ func RenderOverview(
 		activeAlerts = ev.Active()
 		alertCount = len(activeAlerts)
 	}
+	thresholds := alert.Thresholds{}
+	if ev != nil {
+		thresholds = ev.Thresholds()
+	}
 	availableH := height
 	if alertCount > 0 {
 		availableH = height - 1
@@ -52,7 +56,7 @@ func RenderOverview(
 		halfH = 6
 	}
 
-	topLeft := renderAppPanel(halfW, halfH, prom, tsOnline, tsMsgs, tsSendRate, tsGatewaySend, capacity)
+	topLeft := renderAppPanel(halfW, halfH, prom, tsOnline, tsMsgs, tsSendRate, tsGatewaySend, capacity, thresholds)
 	topRight := renderClientPanel(halfW, halfH, locust, tsLocustRPS, tsLocustFail)
 	botLeft := renderInfraPanel(halfW, halfH, cw, tsDocDBCPU, tsRdsCPU, tsAlbRT)
 	botRight := renderK8sPanel(halfW, halfH, k8s)
@@ -74,7 +78,7 @@ func RenderOverview(
 // Top-left: Application (Prometheus)
 // ---------------------------------------------------------------------------
 
-func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMsgs, tsSendRate, tsGatewaySend *collector.TimeSeries, capacity CapacityMaxima) string {
+func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMsgs, tsSendRate, tsGatewaySend *collector.TimeSeries, capacity CapacityMaxima, thresholds alert.Thresholds) string {
 	if prom == nil || prom.Err != nil {
 		msg := naText
 		if prom != nil && prom.Err != nil {
@@ -138,26 +142,48 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 			continue
 		}
 		heapMB := pm.HeapInUse / (1 << 20)
-		switch {
-		case pm.Goroutines >= 10000:
-			lines = append(lines, "")
-			lines = append(lines,
-				AlertCritical.Render("GW DEGRADED")+
-					LabelStyle.Render(" goroutines=")+AlertCritical.Render(FormatNum(pm.Goroutines))+
-					LabelStyle.Render(" heap=")+AlertCritical.Render(fmt.Sprintf("%.0fMi", heapMB))+
-					LabelStyle.Render(" REDEPLOY"))
-		case pm.Goroutines >= 1000:
-			lines = append(lines, "")
-			lines = append(lines,
-				AlertWarning.Render("GW WARN")+
-					LabelStyle.Render(" goroutines=")+AlertWarning.Render(FormatNum(pm.Goroutines))+
-					LabelStyle.Render(" heap=")+AlertWarning.Render(fmt.Sprintf("%.0fMi", heapMB)))
+		if pm.OnlineUsers > 0 {
+			expected := pm.OnlineUsers*3 + 2200
+			excess := pm.Goroutines - expected
+			switch {
+			case excess >= 5000:
+				lines = append(lines, "")
+				lines = append(lines,
+					AlertCritical.Render("GW DEGRADED")+
+						LabelStyle.Render(" goroutines=")+AlertCritical.Render(FormatNum(pm.Goroutines))+
+						LabelStyle.Render(" heap=")+AlertCritical.Render(fmt.Sprintf("%.0fMi", heapMB))+
+						LabelStyle.Render(" REDEPLOY"))
+			case excess >= 2000:
+				lines = append(lines, "")
+				lines = append(lines,
+					AlertWarning.Render("GW WARN")+
+						LabelStyle.Render(" goroutines=")+AlertWarning.Render(FormatNum(pm.Goroutines))+
+						LabelStyle.Render(" heap=")+AlertWarning.Render(fmt.Sprintf("%.0fMi", heapMB)))
+			}
+		} else {
+			switch {
+			case pm.Goroutines >= 50000:
+				lines = append(lines, "")
+				lines = append(lines,
+					AlertCritical.Render("GW DEGRADED")+
+						LabelStyle.Render(" goroutines=")+AlertCritical.Render(FormatNum(pm.Goroutines))+
+						LabelStyle.Render(" heap=")+AlertCritical.Render(fmt.Sprintf("%.0fMi", heapMB))+
+						LabelStyle.Render(" REDEPLOY"))
+			case pm.Goroutines >= 20000:
+				lines = append(lines, "")
+				lines = append(lines,
+					AlertWarning.Render("GW WARN")+
+						LabelStyle.Render(" goroutines=")+AlertWarning.Render(FormatNum(pm.Goroutines))+
+						LabelStyle.Render(" heap=")+AlertWarning.Render(fmt.Sprintf("%.0fMi", heapMB)))
+			}
 		}
 	}
 
 	// Storage pipeline failure indicators (compact)
 	anyStorageFail := prom.RedisInsertFail > 0 || prom.MongoInsertFail > 0 || prom.SeqSetFail > 0
-	anyPushFail := prom.PushFail > 0 || prom.API5XX > 0 || prom.LongTimePush > 0
+	anyPushFail := rateMeetsWarningThreshold(prom.PushFail, thresholds.PushFailWarnPerSec) ||
+		rateMeetsWarningThreshold(prom.LongTimePush, thresholds.LongTimePushWarnPerSec) ||
+		prom.API5XX > 0
 	anyLagIssue := false // lag growth removed (per-batch vs per-msg counter mismatch); use CloudWatch MSK lag
 	if anyStorageFail || anyPushFail || anyLagIssue {
 		lines = append(lines, "")
@@ -171,10 +197,10 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 		if prom.SeqSetFail > 0 {
 			failParts = append(failParts, AlertCritical.Render("Seq:"+FormatRate(prom.SeqSetFail)))
 		}
-		if prom.LongTimePush > 0 {
+		if rateMeetsWarningThreshold(prom.LongTimePush, thresholds.LongTimePushWarnPerSec) {
 			failParts = append(failParts, AlertWarning.Render("PushSlow:"+FormatRate(prom.LongTimePush)))
 		}
-		if prom.PushFail > 0 {
+		if rateMeetsWarningThreshold(prom.PushFail, thresholds.PushFailWarnPerSec) {
 			failParts = append(failParts, AlertWarning.Render("Push:"+FormatRate(prom.PushFail)))
 		}
 		if prom.API5XX > 0 {
@@ -185,6 +211,13 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 	}
 
 	return Panel("Application (Prometheus)", strings.Join(lines, "\n"), w, h)
+}
+
+func rateMeetsWarningThreshold(value, threshold float64) bool {
+	if threshold > 0 {
+		return value >= threshold
+	}
+	return value > 0
 }
 
 // ---------------------------------------------------------------------------
