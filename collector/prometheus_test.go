@@ -47,6 +47,54 @@ func TestCollectAcceptsRealZeroRequiredMetric(t *testing.T) {
 	}
 }
 
+func TestCollectSMSVerifyMetrics(t *testing.T) {
+	c := newMockPrometheusCollector(t, func(query string) []map[string]any {
+		switch {
+		case strings.Contains(query, "online_user_num") && strings.Contains(query, `job="msg-gateway"`):
+			return []map[string]any{promTestResult(map[string]string{}, "1")}
+		case strings.Contains(query, "go_goroutines"):
+			return []map[string]any{promTestResult(map[string]string{"pod": "chat-rpc-0"}, "42")}
+		case strings.Contains(query, "sms_verify_code_send_total") && strings.Contains(query, `reason!~`):
+			return []map[string]any{promTestResult(map[string]string{}, "0.5")}
+		case strings.Contains(query, "sms_verify_code_send_total") && strings.Contains(query, `result="failure"`) && !strings.Contains(query, `reason=`):
+			return []map[string]any{promTestResult(map[string]string{}, "1.5")}
+		case strings.Contains(query, "sms_verify_code_send_total") && strings.Contains(query, `provider="aliyun"`) && strings.Contains(query, `reason="business_stopped"`):
+			return []map[string]any{promTestResult(map[string]string{}, "0.4")}
+		case strings.Contains(query, "sms_verify_code_send_total") && strings.Contains(query, `provider="tencent"`) && strings.Contains(query, `reason="phone_format_error"`):
+			return []map[string]any{promTestResult(map[string]string{}, "0.3")}
+		case strings.Contains(query, "sms_verify_code_send_total") && strings.Contains(query, `provider="tencent"`) && strings.Contains(query, `reason="insufficient_balance"`):
+			return []map[string]any{promTestResult(map[string]string{}, "0.2")}
+		case strings.Contains(query, "sms_verify_code_send_total") && strings.Contains(query, `provider="all"`) && strings.Contains(query, `reason="no_provider_success"`):
+			return []map[string]any{promTestResult(map[string]string{}, "0.1")}
+		default:
+			return nil
+		}
+	})
+
+	snap := c.Collect("im")
+	if snap.Err != nil {
+		t.Fatalf("expected snapshot to be healthy, got %v", snap.Err)
+	}
+	if snap.SMSFailTotal != 1.5 {
+		t.Fatalf("SMSFailTotal = %v, want 1.5", snap.SMSFailTotal)
+	}
+	if snap.SMSAliBusinessStopped != 0.4 {
+		t.Fatalf("SMSAliBusinessStopped = %v, want 0.4", snap.SMSAliBusinessStopped)
+	}
+	if snap.SMSTencentPhoneFormat != 0.3 {
+		t.Fatalf("SMSTencentPhoneFormat = %v, want 0.3", snap.SMSTencentPhoneFormat)
+	}
+	if snap.SMSTencentInsufficientBalance != 0.2 {
+		t.Fatalf("SMSTencentInsufficientBalance = %v, want 0.2", snap.SMSTencentInsufficientBalance)
+	}
+	if snap.SMSNoProviderSuccess != 0.1 {
+		t.Fatalf("SMSNoProviderSuccess = %v, want 0.1", snap.SMSNoProviderSuccess)
+	}
+	if snap.SMSOtherFailure != 0.5 {
+		t.Fatalf("SMSOtherFailure = %v, want 0.5", snap.SMSOtherFailure)
+	}
+}
+
 func TestCollectChatAPIReportsErrorWhenRequiredMetricMissing(t *testing.T) {
 	c := newMockPrometheusCollector(t, func(query string) []map[string]any {
 		return nil

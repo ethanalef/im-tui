@@ -150,6 +150,10 @@ type ThresholdConfig struct {
 	LongTimePushWarnPerSec float64 `yaml:"long_time_push_warn_per_sec"`
 	LongTimePushCritPerSec float64 `yaml:"long_time_push_crit_per_sec"`
 
+	// SMS verification-code provider failure rates
+	SMSFailWarnPerSec float64 `yaml:"sms_fail_warn_per_sec"`
+	SMSFailCritPerSec float64 `yaml:"sms_fail_crit_per_sec"`
+
 	// Pipeline latency P95 thresholds (upgrade version metrics)
 	E2EGroupWarnS      float64 `yaml:"e2e_group_warn_s"`      // group delivery P95 warning (seconds)
 	E2EGroupCritS      float64 `yaml:"e2e_group_crit_s"`      // group delivery P95 critical (seconds)

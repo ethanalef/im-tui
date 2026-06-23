@@ -181,11 +181,16 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 
 	// Storage pipeline failure indicators (compact)
 	anyStorageFail := prom.RedisInsertFail > 0 || prom.MongoInsertFail > 0 || prom.SeqSetFail > 0
+	anySMSFail := prom.SMSAliBusinessStopped > 0 ||
+		prom.SMSTencentInsufficientBalance > 0 ||
+		prom.SMSNoProviderSuccess > 0 ||
+		prom.SMSTencentPhoneFormat > 0 ||
+		rateMeetsWarningThreshold(prom.SMSOtherFailure, thresholds.SMSFailWarnPerSec)
 	anyPushFail := rateMeetsWarningThreshold(prom.PushFail, thresholds.PushFailWarnPerSec) ||
 		rateMeetsWarningThreshold(prom.LongTimePush, thresholds.LongTimePushWarnPerSec) ||
 		prom.API5XX > 0
 	anyLagIssue := false // lag growth removed (per-batch vs per-msg counter mismatch); use CloudWatch MSK lag
-	if anyStorageFail || anyPushFail || anyLagIssue {
+	if anyStorageFail || anySMSFail || anyPushFail || anyLagIssue {
 		lines = append(lines, "")
 		var failParts []string
 		if prom.RedisInsertFail > 0 {
@@ -202,6 +207,21 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 		}
 		if rateMeetsWarningThreshold(prom.PushFail, thresholds.PushFailWarnPerSec) {
 			failParts = append(failParts, AlertWarning.Render("Push:"+FormatRate(prom.PushFail)))
+		}
+		if prom.SMSAliBusinessStopped > 0 {
+			failParts = append(failParts, AlertCritical.Render("SMSAli:"+FormatRate(prom.SMSAliBusinessStopped)))
+		}
+		if prom.SMSTencentInsufficientBalance > 0 {
+			failParts = append(failParts, AlertCritical.Render("SMSTxBal:"+FormatRate(prom.SMSTencentInsufficientBalance)))
+		}
+		if prom.SMSNoProviderSuccess > 0 {
+			failParts = append(failParts, AlertCritical.Render("SMSNone:"+FormatRate(prom.SMSNoProviderSuccess)))
+		}
+		if prom.SMSTencentPhoneFormat > 0 {
+			failParts = append(failParts, AlertWarning.Render("SMSTxFmt:"+FormatRate(prom.SMSTencentPhoneFormat)))
+		}
+		if rateMeetsWarningThreshold(prom.SMSOtherFailure, thresholds.SMSFailWarnPerSec) {
+			failParts = append(failParts, AlertWarning.Render("SMSOther:"+FormatRate(prom.SMSOtherFailure)))
 		}
 		if prom.API5XX > 0 {
 			failParts = append(failParts, AlertWarning.Render("5XX:"+FormatRate(prom.API5XX)))

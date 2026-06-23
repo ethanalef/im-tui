@@ -64,6 +64,8 @@ type ThresholdConfig struct {
 	PushFailCritPerSec     float64 `json:"push_fail_crit_per_sec"`
 	LongTimePushWarnPerSec float64 `json:"long_time_push_warn_per_sec"`
 	LongTimePushCritPerSec float64 `json:"long_time_push_crit_per_sec"`
+	SMSFailWarnPerSec      float64 `json:"sms_fail_warn_per_sec"`
+	SMSFailCritPerSec      float64 `json:"sms_fail_crit_per_sec"`
 
 	E2EGroupWarnS      float64 `json:"e2e_group_warn_s"`
 	E2EGroupCritS      float64 `json:"e2e_group_crit_s"`
@@ -140,6 +142,14 @@ type AppMetrics struct {
 	ChatAPI5XX      float64 `json:"chat_api_5xx"`
 	OpenIMAPI5XX    float64 `json:"openim_api_5xx"`
 	GatewaySendRate float64 `json:"gateway_send_rate"`
+
+	// SMS verification-code provider health
+	SMSFailTotal                  float64 `json:"sms_fail_total"`
+	SMSAliBusinessStopped         float64 `json:"sms_aliyun_business_stopped"`
+	SMSTencentPhoneFormat         float64 `json:"sms_tencent_phone_format"`
+	SMSTencentInsufficientBalance float64 `json:"sms_tencent_insufficient_balance"`
+	SMSNoProviderSuccess          float64 `json:"sms_no_provider_success"`
+	SMSOtherFailure               float64 `json:"sms_other_failure"`
 
 	// Push pipeline (invisible queue visibility)
 	PushMsgInFlight            float64 `json:"push_in_flight"`

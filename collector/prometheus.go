@@ -75,6 +75,13 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		{"api_5xx", `sum(rate(http_count{namespace="` + ns + `",status=~"5.."}[1m]))`, false},
 		{"chat_api_5xx", `sum(rate(http_count{namespace="` + ns + `",job=~".*chat-api.*",status=~"5.."}[1m]))`, false},
 		{"openim_api_5xx", `sum(rate(http_count{namespace="` + ns + `",job=~".*openim-api.*",status=~"5.."}[1m]))`, false},
+		// SMS verification-code provider health (chat-rpc; upgrade version only).
+		{"sms_fail_total", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",result="failure"}[1m]))`, false},
+		{"sms_aliyun_business_stopped", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",provider="aliyun",result="failure",reason="business_stopped"}[1m]))`, false},
+		{"sms_tencent_phone_format", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",provider="tencent",result="failure",reason="phone_format_error"}[1m]))`, false},
+		{"sms_tencent_insufficient_balance", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",provider="tencent",result="failure",reason="insufficient_balance"}[1m]))`, false},
+		{"sms_no_provider_success", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",provider="all",result="failure",reason="no_provider_success"}[1m]))`, false},
+		{"sms_other_failure", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",result="failure",reason!~"business_stopped|phone_format_error|insufficient_balance|no_provider_success"}[1m]))`, false},
 		// Gateway-level send counter (now available via ServiceMonitor)
 		{"gateway_send_rate", `sum(rate(msg_gateway_send_msg_total{namespace="` + ns + `"}[1m]))`, false},
 		// Push pipeline metrics (invisible queue visibility)
@@ -163,6 +170,18 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 			snap.ChatAPI5XX = val
 		case "openim_api_5xx":
 			snap.OpenIMAPI5XX = val
+		case "sms_fail_total":
+			snap.SMSFailTotal = val
+		case "sms_aliyun_business_stopped":
+			snap.SMSAliBusinessStopped = val
+		case "sms_tencent_phone_format":
+			snap.SMSTencentPhoneFormat = val
+		case "sms_tencent_insufficient_balance":
+			snap.SMSTencentInsufficientBalance = val
+		case "sms_no_provider_success":
+			snap.SMSNoProviderSuccess = val
+		case "sms_other_failure":
+			snap.SMSOtherFailure = val
 		case "gateway_send_rate":
 			snap.GatewaySendRate = val
 		case "push_in_flight":

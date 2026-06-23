@@ -63,8 +63,8 @@ func RenderApplication(
 		batchHeight = 4
 	}
 	midBotHeight := height * 18 / 100
-	if midBotHeight < 8 {
-		midBotHeight = 8
+	if midBotHeight < 11 {
+		midBotHeight = 11
 	}
 	botHeight := height - topHeight - pipelineHeight - midTopHeight - batchHeight - midBotHeight
 	if botHeight < 5 {
@@ -333,6 +333,14 @@ func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot
 			LabelStyle.Render("  Err ") + failRateValue(prom.PushZombieCacheError+prom.PushZombieCacheWriteFailed),
 		LabelStyle.Render("Login ") + okStyle.Render(FormatRate(prom.UserLogin)) +
 			LabelStyle.Render("  Register ") + okStyle.Render(FormatRate(prom.UserRegister)),
+		LabelStyle.Render("SMS Verify  ") +
+			LabelStyle.Render("Fail ") + thresholdRateValueWithCritical(prom.SMSFailTotal, thresholds.SMSFailWarnPerSec, thresholds.SMSFailCritPerSec) +
+			LabelStyle.Render("  AliStop ") + failRateValue(prom.SMSAliBusinessStopped) +
+			LabelStyle.Render("  TxBal ") + failRateValue(prom.SMSTencentInsufficientBalance),
+		LabelStyle.Render("SMS Detail  ") +
+			LabelStyle.Render("TxFmt ") + thresholdRateValue(prom.SMSTencentPhoneFormat, 0) +
+			LabelStyle.Render("  NoProv ") + failRateValue(prom.SMSNoProviderSuccess) +
+			LabelStyle.Render("  Other ") + thresholdRateValueWithCritical(prom.SMSOtherFailure, thresholds.SMSFailWarnPerSec, thresholds.SMSFailCritPerSec),
 		LabelStyle.Render("5XX  chat-api ") + failRateValue(prom.ChatAPI5XX) +
 			LabelStyle.Render("  openim-api ") + failRateValue(prom.OpenIMAPI5XX),
 	}
@@ -384,6 +392,20 @@ func failRateValue(rate float64) string {
 
 func thresholdRateValue(rate, warnThreshold float64) string {
 	s := FormatRate(rate)
+	if rateMeetsWarningThreshold(rate, warnThreshold) {
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	}
+	if rate > 0 {
+		return ValueStyle.Render(s)
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+}
+
+func thresholdRateValueWithCritical(rate, warnThreshold, critThreshold float64) string {
+	s := FormatRate(rate)
+	if critThreshold > 0 && rate >= critThreshold {
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	}
 	if rateMeetsWarningThreshold(rate, warnThreshold) {
 		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
 	}

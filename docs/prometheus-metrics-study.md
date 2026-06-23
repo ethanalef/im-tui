@@ -159,3 +159,15 @@ Adding Tier 1 metrics requires:
 5. Display in `view/application.go` and `view/overview.go`
 
 The msg-transfer metrics come from a **different scrape target** (port 12020 vs msg-gateway's 12140), so they need Prometheus to scrape msg-transfer as well — covered in the DevOps request.
+
+### SMS Verification Provider Metric
+
+`sms_verify_code_send_total{provider,result,reason}` is emitted by chat-rpc for verification-code send attempts. `im-tui` consumes failure rates by reason:
+
+- `provider="aliyun", reason="business_stopped"` → critical, Aliyun account/business is stopped.
+- `provider="tencent", reason="insufficient_balance"` → critical, Tencent balance/package needs recharge.
+- `provider="all", reason="no_provider_success"` → critical, no provider delivered the code.
+- `provider="tencent", reason="phone_format_error"` → warning, request phone formatting needs investigation.
+- Other failure reasons use the configurable `sms_fail_warn_per_sec` / `sms_fail_crit_per_sec` thresholds.
+
+The TUI intentionally does not query or display phone numbers from Prometheus labels; recipient detail stays in application logs only.

@@ -59,6 +59,9 @@ type Thresholds struct {
 	LongTimePushWarnPerSec float64
 	LongTimePushCritPerSec float64
 
+	SMSFailWarnPerSec float64
+	SMSFailCritPerSec float64
+
 	// Pipeline latency P95 thresholds (upgrade version metrics)
 	E2EGroupWarnS      float64
 	E2EGroupCritS      float64
@@ -154,6 +157,27 @@ func (e *Evaluator) Evaluate(
 		}
 		if prom.API5XX > 0 {
 			alerts = append(alerts, Alert{LevelWarning, "API 5XX", fmt.Sprintf("%.2f/s", prom.API5XX), "API server returning 5XX errors", now})
+		}
+		if prom.SMSAliBusinessStopped > 0 {
+			alerts = append(alerts, Alert{LevelCritical, "SMS Aliyun Stopped", fmt.Sprintf("%.2f/s", prom.SMSAliBusinessStopped), "Aliyun SMS provider account or business is stopped", now})
+		}
+		if prom.SMSTencentInsufficientBalance > 0 {
+			alerts = append(alerts, Alert{LevelCritical, "SMS Tencent Balance", fmt.Sprintf("%.2f/s", prom.SMSTencentInsufficientBalance), "Tencent SMS balance or package is insufficient", now})
+		}
+		if prom.SMSNoProviderSuccess > 0 {
+			alerts = append(alerts, Alert{LevelCritical, "SMS No Provider", fmt.Sprintf("%.2f/s", prom.SMSNoProviderSuccess), "No SMS provider succeeded for verification-code send", now})
+		}
+		if prom.SMSTencentPhoneFormat > 0 {
+			alerts = append(alerts, Alert{LevelWarning, "SMS Tencent Format", fmt.Sprintf("%.2f/s", prom.SMSTencentPhoneFormat), "Tencent SMS rejected phone number format", now})
+		}
+		if prom.SMSOtherFailure > 0 {
+			smsFailWarn := e.thresholds.SMSFailWarnPerSec
+			smsFailCrit := e.thresholds.SMSFailCritPerSec
+			if smsFailCrit > 0 && prom.SMSOtherFailure >= smsFailCrit {
+				alerts = append(alerts, Alert{LevelCritical, "SMS Other Fail", fmt.Sprintf("%.2f/s", prom.SMSOtherFailure), "SMS provider failures critical", now})
+			} else if (smsFailWarn > 0 && prom.SMSOtherFailure >= smsFailWarn) || smsFailWarn == 0 {
+				alerts = append(alerts, Alert{LevelWarning, "SMS Other Fail", fmt.Sprintf("%.2f/s", prom.SMSOtherFailure), "SMS provider failures detected", now})
+			}
 		}
 	}
 

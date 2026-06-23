@@ -94,6 +94,49 @@ func TestPushRateThresholdsDefaultToAnyPositive(t *testing.T) {
 	assertAlert(t, alerts, LevelWarning, "Push Fail")
 }
 
+// --- SMS verification-code provider failures ---
+
+func TestSMSProviderFailuresUseReasonSpecificSeverity(t *testing.T) {
+	e := NewEvaluator(Thresholds{})
+
+	alerts := e.Evaluate(&collector.PrometheusSnapshot{
+		SMSAliBusinessStopped:         0.2,
+		SMSTencentInsufficientBalance: 0.3,
+		SMSNoProviderSuccess:          0.4,
+		SMSTencentPhoneFormat:         0.5,
+	}, nil, nil, nil, nil)
+
+	assertAlert(t, alerts, LevelCritical, "SMS Aliyun Stopped")
+	assertAlert(t, alerts, LevelCritical, "SMS Tencent Balance")
+	assertAlert(t, alerts, LevelCritical, "SMS No Provider")
+	assertAlert(t, alerts, LevelWarning, "SMS Tencent Format")
+}
+
+func TestSMSOtherFailureThresholds(t *testing.T) {
+	e := NewEvaluator(Thresholds{
+		SMSFailWarnPerSec: 5,
+		SMSFailCritPerSec: 20,
+	})
+
+	alerts := e.Evaluate(&collector.PrometheusSnapshot{SMSOtherFailure: 4}, nil, nil, nil, nil)
+	if len(alerts) != 0 {
+		t.Fatalf("expected SMS failures below threshold to be silent, got %+v", alerts)
+	}
+
+	alerts = e.Evaluate(&collector.PrometheusSnapshot{SMSOtherFailure: 5}, nil, nil, nil, nil)
+	assertAlert(t, alerts, LevelWarning, "SMS Other Fail")
+
+	alerts = e.Evaluate(&collector.PrometheusSnapshot{SMSOtherFailure: 20}, nil, nil, nil, nil)
+	assertAlert(t, alerts, LevelCritical, "SMS Other Fail")
+}
+
+func TestSMSOtherFailureDefaultsToAnyPositive(t *testing.T) {
+	e := NewEvaluator(Thresholds{})
+
+	alerts := e.Evaluate(&collector.PrometheusSnapshot{SMSOtherFailure: 0.1}, nil, nil, nil, nil)
+	assertAlert(t, alerts, LevelWarning, "SMS Other Fail")
+}
+
 // --- ALB 5XX configurable critical threshold ---
 
 func TestALB5XXUsesConfigurableCriticalThreshold(t *testing.T) {

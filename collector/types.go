@@ -81,6 +81,14 @@ type PrometheusSnapshot struct {
 	ChatAPI5XX   float64 // sum(rate(http_count{job=~".*chat-api.*",status=~"5.."}[1m]))
 	OpenIMAPI5XX float64 // sum(rate(http_count{job=~".*openim-api.*",status=~"5.."}[1m]))
 
+	// SMS verification-code provider health (chat-rpc)
+	SMSFailTotal                  float64 // rate(sms_verify_code_send_total{result="failure"}[1m])
+	SMSAliBusinessStopped         float64 // rate(...{provider="aliyun",reason="business_stopped"}[1m])
+	SMSTencentPhoneFormat         float64 // rate(...{provider="tencent",reason="phone_format_error"}[1m])
+	SMSTencentInsufficientBalance float64 // rate(...{provider="tencent",reason="insufficient_balance"}[1m])
+	SMSNoProviderSuccess          float64 // rate(...{provider="all",reason="no_provider_success"}[1m])
+	SMSOtherFailure               float64 // rate(...{result="failure", known reasons excluded}[1m])
+
 	// Tier 3: gateway-level counter (now available via ServiceMonitor)
 	GatewaySendRate float64 // rate(msg_gateway_send_msg_total[1m])
 
