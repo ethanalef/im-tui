@@ -75,19 +75,22 @@ type PrometheusSnapshot struct {
 
 	// Tier 2: push quality + activity
 	LongTimePush float64 // rate(msg_long_time_push_total[1m])
-	UserLogin    float64 // rate(user_login_total[1m])
-	UserRegister float64 // rate(user_register_total[1m])
+	UserLogin    float64 // increase(user_login_total[1h])
+	UserRegister float64 // increase(user_register_total[1h])
 	API5XX       float64 // sum(rate(http_count{status=~"5.."}[1m]))
 	ChatAPI5XX   float64 // sum(rate(http_count{job=~".*chat-api.*",status=~"5.."}[1m]))
 	OpenIMAPI5XX float64 // sum(rate(http_count{job=~".*openim-api.*",status=~"5.."}[1m]))
 
-	// SMS verification-code provider health (chat-rpc)
-	SMSFailTotal                  float64 // rate(sms_verify_code_send_total{result="failure"}[1m])
-	SMSAliBusinessStopped         float64 // rate(...{provider="aliyun",reason="business_stopped"}[1m])
-	SMSTencentPhoneFormat         float64 // rate(...{provider="tencent",reason="phone_format_error"}[1m])
-	SMSTencentInsufficientBalance float64 // rate(...{provider="tencent",reason="insufficient_balance"}[1m])
-	SMSNoProviderSuccess          float64 // rate(...{provider="all",reason="no_provider_success"}[1m])
-	SMSOtherFailure               float64 // rate(...{result="failure", known reasons excluded}[1m])
+	// SMS verification-code provider health (chat-rpc), counted over the last hour.
+	SMSFailTotal                  float64 // increase(sms_verify_code_send_total{result="failure"}[1h])
+	SMSSuccessTotal               float64 // increase(sms_verify_code_send_total{result="success"}[1h])
+	SMSAliOK                      float64 // increase(...{provider="aliyun",result="success",reason="ok"}[1h])
+	SMSTencentOK                  float64 // increase(...{provider="tencent",result="success",reason="ok"}[1h])
+	SMSAliBusinessStopped         float64 // increase(...{provider="aliyun",reason="business_stopped"}[1h])
+	SMSTencentPhoneFormat         float64 // increase(...{provider="tencent",reason="phone_format_error"}[1h])
+	SMSTencentInsufficientBalance float64 // increase(...{provider="tencent",reason="insufficient_balance"}[1h])
+	SMSNoProviderSuccess          float64 // increase(...{provider="all",reason="no_provider_success"}[1h])
+	SMSOtherFailure               float64 // increase(...{result="failure", known reasons excluded}[1h])
 
 	// Tier 3: gateway-level counter (now available via ServiceMonitor)
 	GatewaySendRate float64 // rate(msg_gateway_send_msg_total[1m])

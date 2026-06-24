@@ -64,8 +64,8 @@ type ThresholdConfig struct {
 	PushFailCritPerSec     float64 `json:"push_fail_crit_per_sec"`
 	LongTimePushWarnPerSec float64 `json:"long_time_push_warn_per_sec"`
 	LongTimePushCritPerSec float64 `json:"long_time_push_crit_per_sec"`
-	SMSFailWarnPerSec      float64 `json:"sms_fail_warn_per_sec"`
-	SMSFailCritPerSec      float64 `json:"sms_fail_crit_per_sec"`
+	SMSFailWarnPerHour     float64 `json:"sms_fail_warn_per_hour"`
+	SMSFailCritPerHour     float64 `json:"sms_fail_crit_per_hour"`
 
 	E2EGroupWarnS      float64 `json:"e2e_group_warn_s"`
 	E2EGroupCritS      float64 `json:"e2e_group_crit_s"`
@@ -136,20 +136,23 @@ type AppMetrics struct {
 	// Push + activity
 	PushFail        float64 `json:"push_fail"`
 	LongTimePush    float64 `json:"long_time_push"`
-	UserLogin       float64 `json:"user_login"`
-	UserRegister    float64 `json:"user_register"`
+	UserLogin       float64 `json:"user_login_1h"`
+	UserRegister    float64 `json:"user_register_1h"`
 	API5XX          float64 `json:"api_5xx"`
 	ChatAPI5XX      float64 `json:"chat_api_5xx"`
 	OpenIMAPI5XX    float64 `json:"openim_api_5xx"`
 	GatewaySendRate float64 `json:"gateway_send_rate"`
 
 	// SMS verification-code provider health
-	SMSFailTotal                  float64 `json:"sms_fail_total"`
-	SMSAliBusinessStopped         float64 `json:"sms_aliyun_business_stopped"`
-	SMSTencentPhoneFormat         float64 `json:"sms_tencent_phone_format"`
-	SMSTencentInsufficientBalance float64 `json:"sms_tencent_insufficient_balance"`
-	SMSNoProviderSuccess          float64 `json:"sms_no_provider_success"`
-	SMSOtherFailure               float64 `json:"sms_other_failure"`
+	SMSFailTotal                  float64 `json:"sms_fail_1h"`
+	SMSSuccessTotal               float64 `json:"sms_success_1h"`
+	SMSAliOK                      float64 `json:"sms_aliyun_ok_1h"`
+	SMSTencentOK                  float64 `json:"sms_tencent_ok_1h"`
+	SMSAliBusinessStopped         float64 `json:"sms_aliyun_business_stopped_1h"`
+	SMSTencentPhoneFormat         float64 `json:"sms_tencent_phone_format_1h"`
+	SMSTencentInsufficientBalance float64 `json:"sms_tencent_insufficient_balance_1h"`
+	SMSNoProviderSuccess          float64 `json:"sms_no_provider_success_1h"`
+	SMSOtherFailure               float64 `json:"sms_other_failure_1h"`
 
 	// Push pipeline (invisible queue visibility)
 	PushMsgInFlight            float64 `json:"push_in_flight"`

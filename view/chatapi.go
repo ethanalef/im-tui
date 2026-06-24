@@ -119,8 +119,8 @@ func renderAPIOperations(w, h int, s *collector.ChatAPISnapshot, prom *collector
 	// Auth
 	lines = append(lines,
 		lipgloss.NewStyle().Foreground(ColorCyan).Bold(true).Render("Auth")+
-			LabelStyle.Render(" Login:")+ValueStyle.Render(FormatRate(getUserLogin(s, prom)))+
-			LabelStyle.Render("  Register:")+ValueStyle.Render(FormatRate(getUserRegister(s, prom))))
+			LabelStyle.Render(" Login/h:")+ValueStyle.Render(hourlyCountValue(getUserLogin(s, prom)))+
+			LabelStyle.Render("  Register/h:")+ValueStyle.Render(hourlyCountValue(getUserRegister(s, prom))))
 
 	// Message send
 	lines = append(lines,

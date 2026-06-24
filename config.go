@@ -150,7 +150,11 @@ type ThresholdConfig struct {
 	LongTimePushWarnPerSec float64 `yaml:"long_time_push_warn_per_sec"`
 	LongTimePushCritPerSec float64 `yaml:"long_time_push_crit_per_sec"`
 
-	// SMS verification-code provider failure rates
+	// SMS verification-code provider failure counts over the last hour.
+	SMSFailWarnPerHour float64 `yaml:"sms_fail_warn_per_hour"`
+	SMSFailCritPerHour float64 `yaml:"sms_fail_crit_per_hour"`
+	// Legacy names kept so older configs degrade predictably. Non-zero
+	// per-second thresholds are converted to hourly counts after loading.
 	SMSFailWarnPerSec float64 `yaml:"sms_fail_warn_per_sec"`
 	SMSFailCritPerSec float64 `yaml:"sms_fail_crit_per_sec"`
 
@@ -244,4 +248,18 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func (t ThresholdConfig) SMSFailWarnHourly() float64 {
+	if t.SMSFailWarnPerHour > 0 {
+		return t.SMSFailWarnPerHour
+	}
+	return t.SMSFailWarnPerSec * 3600
+}
+
+func (t ThresholdConfig) SMSFailCritHourly() float64 {
+	if t.SMSFailCritPerHour > 0 {
+		return t.SMSFailCritPerHour
+	}
+	return t.SMSFailCritPerSec * 3600
 }

@@ -125,7 +125,7 @@ These metrics indicate data loss or service degradation. Any non-zero failure ra
 | `push_zombie_filter_dropped_total` | push | `rate(push_zombie_filter_dropped_total[1m])` | Zombie offline-push reduction rate |
 | `push_zombie_filter_cache_hit_total` | push | `rate(push_zombie_filter_cache_hit_total[1m])` | Redis cache effectiveness |
 | `push_zombie_filter_db_lookup_total` | push | `rate(push_zombie_filter_db_lookup_total[1m])` | MySQL fallback pressure |
-| `user_login_total` | auth | `rate(user_login_total[1m])` | Login activity trend |
+| `user_login_total` | auth | `increase(user_login_total[1h])` | Login count in last hour |
 | `http_count{status=~"5.."}` | api | `sum(rate(http_count{status=~"5.."}[1m]))` | API server error rate |
 
 ### Tier 3 — Nice to have
@@ -134,7 +134,7 @@ These metrics indicate data loss or service degradation. Any non-zero failure ra
 |--------|--------|--------|---------|
 | `grpc_server_handling_seconds` | all RPC | `histogram_quantile(0.99, ...)` | P99 latency per service |
 | `grpc_server_handled_total{grpc_code!="OK"}` | all RPC | `sum by (grpc_service) (rate(...))` | Error rate per microservice |
-| `user_register_total` | user | `rate(user_register_total[1m])` | Registration trend |
+| `user_register_total` | user | `increase(user_register_total[1h])` | Registration count in last hour |
 | `process_resident_memory_bytes` | all | per-pod | True RSS (complements go_memstats) |
 | `process_cpu_seconds_total` | all | `rate(...[1m])` per pod | Per-pod CPU |
 
@@ -162,12 +162,13 @@ The msg-transfer metrics come from a **different scrape target** (port 12020 vs 
 
 ### SMS Verification Provider Metric
 
-`sms_verify_code_send_total{provider,result,reason}` is emitted by chat-rpc for verification-code send attempts. `im-tui` consumes failure rates by reason:
+`sms_verify_code_send_total{provider,result,reason}` is emitted by chat-rpc for verification-code send attempts. `im-tui` consumes last-hour counts by provider/result/reason:
 
+- `provider="tencent", result="success", reason="ok"` → confirms Tencent fallback is delivering verification codes when Aliyun is broken.
 - `provider="aliyun", reason="business_stopped"` → critical, Aliyun account/business is stopped.
 - `provider="tencent", reason="insufficient_balance"` → critical, Tencent balance/package needs recharge.
 - `provider="all", reason="no_provider_success"` → critical, no provider delivered the code.
 - `provider="tencent", reason="phone_format_error"` → warning, request phone formatting needs investigation.
-- Other failure reasons use the configurable `sms_fail_warn_per_sec` / `sms_fail_crit_per_sec` thresholds.
+- Other failure reasons use the configurable `sms_fail_warn_per_hour` / `sms_fail_crit_per_hour` thresholds.
 
-The TUI intentionally does not query or display phone numbers from Prometheus labels; recipient detail stays in application logs only.
+The TUI intentionally does not query or display phone numbers from Prometheus labels. PROD stdout is configured at error level, so success and failover-success `ZInfo` lines may not appear in logs; Tencent success should be checked from the hourly Prometheus counters.

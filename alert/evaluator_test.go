@@ -114,8 +114,8 @@ func TestSMSProviderFailuresUseReasonSpecificSeverity(t *testing.T) {
 
 func TestSMSOtherFailureThresholds(t *testing.T) {
 	e := NewEvaluator(Thresholds{
-		SMSFailWarnPerSec: 5,
-		SMSFailCritPerSec: 20,
+		SMSFailWarnPerHour: 5,
+		SMSFailCritPerHour: 20,
 	})
 
 	alerts := e.Evaluate(&collector.PrometheusSnapshot{SMSOtherFailure: 4}, nil, nil, nil, nil)

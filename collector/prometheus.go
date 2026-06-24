@@ -69,19 +69,23 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 		{"push_fail", `sum(rate({__name__=~"msg_offline_push_failed(_total)?",namespace="` + ns + `"}[1m]))`, false},
 		// Tier 2: push quality + activity
 		{"long_time_push", `sum(rate({__name__=~"msg_long_time_push(_total)?",namespace="` + ns + `"}[1m]))`, false},
-		{"user_login", `sum(rate({__name__=~"user_login(_total)?",namespace="` + ns + `"}[1m]))`, false},
-		{"user_register", `sum(rate({__name__=~"user_register(_total)?",namespace="` + ns + `"}[1m]))`, false},
+		{"user_login", `sum(increase({__name__=~"user_login(_total)?",namespace="` + ns + `"}[1h]))`, false},
+		{"user_register", `sum(increase({__name__=~"user_register(_total)?",namespace="` + ns + `"}[1h]))`, false},
 		// NOTE: metric names are http_count and api_count (NO _total suffix)
 		{"api_5xx", `sum(rate(http_count{namespace="` + ns + `",status=~"5.."}[1m]))`, false},
 		{"chat_api_5xx", `sum(rate(http_count{namespace="` + ns + `",job=~".*chat-api.*",status=~"5.."}[1m]))`, false},
 		{"openim_api_5xx", `sum(rate(http_count{namespace="` + ns + `",job=~".*openim-api.*",status=~"5.."}[1m]))`, false},
 		// SMS verification-code provider health (chat-rpc; upgrade version only).
-		{"sms_fail_total", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",result="failure"}[1m]))`, false},
-		{"sms_aliyun_business_stopped", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",provider="aliyun",result="failure",reason="business_stopped"}[1m]))`, false},
-		{"sms_tencent_phone_format", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",provider="tencent",result="failure",reason="phone_format_error"}[1m]))`, false},
-		{"sms_tencent_insufficient_balance", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",provider="tencent",result="failure",reason="insufficient_balance"}[1m]))`, false},
-		{"sms_no_provider_success", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",provider="all",result="failure",reason="no_provider_success"}[1m]))`, false},
-		{"sms_other_failure", `sum(rate(sms_verify_code_send_total{namespace="` + ns + `",result="failure",reason!~"business_stopped|phone_format_error|insufficient_balance|no_provider_success"}[1m]))`, false},
+		// These are low-volume incident signals, so use last-hour counts instead of per-second rates.
+		{"sms_fail_total", `sum(increase(sms_verify_code_send_total{namespace="` + ns + `",result="failure"}[1h]))`, false},
+		{"sms_success_total", `sum(increase(sms_verify_code_send_total{namespace="` + ns + `",result="success"}[1h]))`, false},
+		{"sms_aliyun_ok", `sum(increase(sms_verify_code_send_total{namespace="` + ns + `",provider="aliyun",result="success",reason="ok"}[1h]))`, false},
+		{"sms_tencent_ok", `sum(increase(sms_verify_code_send_total{namespace="` + ns + `",provider="tencent",result="success",reason="ok"}[1h]))`, false},
+		{"sms_aliyun_business_stopped", `sum(increase(sms_verify_code_send_total{namespace="` + ns + `",provider="aliyun",result="failure",reason="business_stopped"}[1h]))`, false},
+		{"sms_tencent_phone_format", `sum(increase(sms_verify_code_send_total{namespace="` + ns + `",provider="tencent",result="failure",reason="phone_format_error"}[1h]))`, false},
+		{"sms_tencent_insufficient_balance", `sum(increase(sms_verify_code_send_total{namespace="` + ns + `",provider="tencent",result="failure",reason="insufficient_balance"}[1h]))`, false},
+		{"sms_no_provider_success", `sum(increase(sms_verify_code_send_total{namespace="` + ns + `",provider="all",result="failure",reason="no_provider_success"}[1h]))`, false},
+		{"sms_other_failure", `sum(increase(sms_verify_code_send_total{namespace="` + ns + `",result="failure",reason!~"business_stopped|phone_format_error|insufficient_balance|no_provider_success"}[1h]))`, false},
 		// Gateway-level send counter (now available via ServiceMonitor)
 		{"gateway_send_rate", `sum(rate(msg_gateway_send_msg_total{namespace="` + ns + `"}[1m]))`, false},
 		// Push pipeline metrics (invisible queue visibility)
@@ -172,6 +176,12 @@ func (p *PrometheusCollector) Collect(namespace string) PrometheusSnapshot {
 			snap.OpenIMAPI5XX = val
 		case "sms_fail_total":
 			snap.SMSFailTotal = val
+		case "sms_success_total":
+			snap.SMSSuccessTotal = val
+		case "sms_aliyun_ok":
+			snap.SMSAliOK = val
+		case "sms_tencent_ok":
+			snap.SMSTencentOK = val
 		case "sms_aliyun_business_stopped":
 			snap.SMSAliBusinessStopped = val
 		case "sms_tencent_phone_format":

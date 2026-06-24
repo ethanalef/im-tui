@@ -185,7 +185,7 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 		prom.SMSTencentInsufficientBalance > 0 ||
 		prom.SMSNoProviderSuccess > 0 ||
 		prom.SMSTencentPhoneFormat > 0 ||
-		rateMeetsWarningThreshold(prom.SMSOtherFailure, thresholds.SMSFailWarnPerSec)
+		rateMeetsWarningThreshold(prom.SMSOtherFailure, thresholds.SMSFailWarnPerHour)
 	anyPushFail := rateMeetsWarningThreshold(prom.PushFail, thresholds.PushFailWarnPerSec) ||
 		rateMeetsWarningThreshold(prom.LongTimePush, thresholds.LongTimePushWarnPerSec) ||
 		prom.API5XX > 0
@@ -209,19 +209,19 @@ func renderAppPanel(w, h int, prom *collector.PrometheusSnapshot, tsOnline, tsMs
 			failParts = append(failParts, AlertWarning.Render("Push:"+FormatRate(prom.PushFail)))
 		}
 		if prom.SMSAliBusinessStopped > 0 {
-			failParts = append(failParts, AlertCritical.Render("SMSAli:"+FormatRate(prom.SMSAliBusinessStopped)))
+			failParts = append(failParts, AlertCritical.Render("SMSAli:"+smsHourlyValue(prom.SMSAliBusinessStopped)))
 		}
 		if prom.SMSTencentInsufficientBalance > 0 {
-			failParts = append(failParts, AlertCritical.Render("SMSTxBal:"+FormatRate(prom.SMSTencentInsufficientBalance)))
+			failParts = append(failParts, AlertCritical.Render("SMSTxBal:"+smsHourlyValue(prom.SMSTencentInsufficientBalance)))
 		}
 		if prom.SMSNoProviderSuccess > 0 {
-			failParts = append(failParts, AlertCritical.Render("SMSNone:"+FormatRate(prom.SMSNoProviderSuccess)))
+			failParts = append(failParts, AlertCritical.Render("SMSNone:"+smsHourlyValue(prom.SMSNoProviderSuccess)))
 		}
 		if prom.SMSTencentPhoneFormat > 0 {
-			failParts = append(failParts, AlertWarning.Render("SMSTxFmt:"+FormatRate(prom.SMSTencentPhoneFormat)))
+			failParts = append(failParts, AlertWarning.Render("SMSTxFmt:"+smsHourlyValue(prom.SMSTencentPhoneFormat)))
 		}
-		if rateMeetsWarningThreshold(prom.SMSOtherFailure, thresholds.SMSFailWarnPerSec) {
-			failParts = append(failParts, AlertWarning.Render("SMSOther:"+FormatRate(prom.SMSOtherFailure)))
+		if rateMeetsWarningThreshold(prom.SMSOtherFailure, thresholds.SMSFailWarnPerHour) {
+			failParts = append(failParts, AlertWarning.Render("SMSOther:"+smsHourlyValue(prom.SMSOtherFailure)))
 		}
 		if prom.API5XX > 0 {
 			failParts = append(failParts, AlertWarning.Render("5XX:"+FormatRate(prom.API5XX)))

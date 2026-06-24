@@ -95,7 +95,7 @@ func renderThresholds(w, h int, t alert.Thresholds) string {
 		thresholdRow("Kafka Lag", thresholdGT(t.KafkaLagWarn, "", false), thresholdGT(t.KafkaLagCrit, "", false), warn, crit),
 		thresholdRow("Push Fail/s", thresholdGT(t.PushFailWarnPerSec, "", true), thresholdGT(t.PushFailCritPerSec, "", false), warn, crit),
 		thresholdRow("Push Slow/s", thresholdGT(t.LongTimePushWarnPerSec, "", true), thresholdGT(t.LongTimePushCritPerSec, "", false), warn, crit),
-		thresholdRow("SMS Fail/s", thresholdGT(t.SMSFailWarnPerSec, "", true), thresholdGT(t.SMSFailCritPerSec, "", false), warn, crit),
+		thresholdRow("SMS Fail/h", thresholdGT(t.SMSFailWarnPerHour, "", true), thresholdGT(t.SMSFailCritPerHour, "", false), warn, crit),
 		thresholdRow("E2E Group", thresholdGT(t.E2EGroupWarnS, "s", false), thresholdGT(t.E2EGroupCritS, "s", false), warn, crit),
 		thresholdRow("E2E Single", thresholdGT(t.E2ESingleWarnS, "s", false), thresholdGT(t.E2ESingleCritS, "s", false), warn, crit),
 		thresholdRow("5XX errors", thresholdGT(float64(t.Error5XXWarn), "", true), thresholdGT(float64(t.Error5XXCrit), "", false), warn, crit),

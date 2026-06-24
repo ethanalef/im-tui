@@ -331,16 +331,20 @@ func renderStoragePipeline(width, height int, prom *collector.PrometheusSnapshot
 			LabelStyle.Render("  Miss ") + ValueStyle.Render(FormatRate(prom.PushZombieCacheMiss)) +
 			LabelStyle.Render("  DB ") + ValueStyle.Render(FormatRate(prom.PushZombieDBLookup)) +
 			LabelStyle.Render("  Err ") + failRateValue(prom.PushZombieCacheError+prom.PushZombieCacheWriteFailed),
-		LabelStyle.Render("Login ") + okStyle.Render(FormatRate(prom.UserLogin)) +
-			LabelStyle.Render("  Register ") + okStyle.Render(FormatRate(prom.UserRegister)),
+		LabelStyle.Render("Login/h ") + okStyle.Render(hourlyCountValue(prom.UserLogin)) +
+			LabelStyle.Render("  Register/h ") + okStyle.Render(hourlyCountValue(prom.UserRegister)),
 		LabelStyle.Render("SMS Verify  ") +
-			LabelStyle.Render("Fail ") + thresholdRateValueWithCritical(prom.SMSFailTotal, thresholds.SMSFailWarnPerSec, thresholds.SMSFailCritPerSec) +
-			LabelStyle.Render("  AliStop ") + failRateValue(prom.SMSAliBusinessStopped) +
-			LabelStyle.Render("  TxBal ") + failRateValue(prom.SMSTencentInsufficientBalance),
+			LabelStyle.Render("OK/h ") + smsSuccessHourlyValue(prom.SMSSuccessTotal) +
+			LabelStyle.Render("  Fail/h ") + thresholdHourlyValueWithCritical(prom.SMSFailTotal, thresholds.SMSFailWarnPerHour, thresholds.SMSFailCritPerHour) +
+			LabelStyle.Render("  TxOK/h ") + smsSuccessHourlyValue(prom.SMSTencentOK),
 		LabelStyle.Render("SMS Detail  ") +
-			LabelStyle.Render("TxFmt ") + thresholdRateValue(prom.SMSTencentPhoneFormat, 0) +
-			LabelStyle.Render("  NoProv ") + failRateValue(prom.SMSNoProviderSuccess) +
-			LabelStyle.Render("  Other ") + thresholdRateValueWithCritical(prom.SMSOtherFailure, thresholds.SMSFailWarnPerSec, thresholds.SMSFailCritPerSec),
+			LabelStyle.Render("AliStop/h ") + smsFailureHourlyValue(prom.SMSAliBusinessStopped) +
+			LabelStyle.Render("  TxBal/h ") + smsFailureHourlyValue(prom.SMSTencentInsufficientBalance) +
+			LabelStyle.Render("  TxFmt/h ") + thresholdHourlyValue(prom.SMSTencentPhoneFormat, 0),
+		LabelStyle.Render("SMS Other   ") +
+			LabelStyle.Render("NoProv/h ") + smsFailureHourlyValue(prom.SMSNoProviderSuccess) +
+			LabelStyle.Render("  Other/h ") + thresholdHourlyValueWithCritical(prom.SMSOtherFailure, thresholds.SMSFailWarnPerHour, thresholds.SMSFailCritPerHour) +
+			LabelStyle.Render("  AliOK/h ") + smsSuccessHourlyValue(prom.SMSAliOK),
 		LabelStyle.Render("5XX  chat-api ") + failRateValue(prom.ChatAPI5XX) +
 			LabelStyle.Render("  openim-api ") + failRateValue(prom.OpenIMAPI5XX),
 	}
@@ -410,6 +414,55 @@ func thresholdRateValueWithCritical(rate, warnThreshold, critThreshold float64) 
 		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
 	}
 	if rate > 0 {
+		return ValueStyle.Render(s)
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+}
+
+func hourlyCountValue(count float64) string {
+	return FormatNum(count) + "/h"
+}
+
+func smsHourlyValue(count float64) string {
+	return hourlyCountValue(count)
+}
+
+func smsFailureHourlyValue(count float64) string {
+	s := smsHourlyValue(count)
+	if count > 0 {
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+}
+
+func smsSuccessHourlyValue(count float64) string {
+	s := smsHourlyValue(count)
+	if count > 0 {
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+	}
+	return lipgloss.NewStyle().Foreground(ColorSubtext).Render(s)
+}
+
+func thresholdHourlyValue(count, warnThreshold float64) string {
+	s := smsHourlyValue(count)
+	if rateMeetsWarningThreshold(count, warnThreshold) {
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	}
+	if count > 0 {
+		return ValueStyle.Render(s)
+	}
+	return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
+}
+
+func thresholdHourlyValueWithCritical(count, warnThreshold, critThreshold float64) string {
+	s := smsHourlyValue(count)
+	if critThreshold > 0 && count >= critThreshold {
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorRed).Render(s)
+	}
+	if rateMeetsWarningThreshold(count, warnThreshold) {
+		return lipgloss.NewStyle().Bold(true).Foreground(ColorYellow).Render(s)
+	}
+	if count > 0 {
 		return ValueStyle.Render(s)
 	}
 	return lipgloss.NewStyle().Bold(true).Foreground(ColorGreen).Render(s)
